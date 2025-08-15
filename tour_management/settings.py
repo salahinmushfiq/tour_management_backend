@@ -32,6 +32,7 @@ ALLOWED_HOSTS = [
     'localhost', '127.0.0.1',
     '.railway.app',              # Allow Railway subdomains
     'tour-mate-vite.netlify.app' # Frontend in production
+
 ]
 
 # ---------------------------
@@ -98,6 +99,7 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',  # Vite dev
     'https://localhost:5173',  # Vite dev
     'https://tour-mate-vite.netlify.app',  # Production frontend
+    'https://tour-management-backend-kn59.onrender.com' # Production backend
 ]
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 CORS_ALLOW_CREDENTIALS = True  # Allow cookies & auth headers
@@ -227,6 +229,9 @@ DATABASES = {
         'PASSWORD': config('DB_PASSWORD'),
         'HOST': config('DB_HOST'),
         'PORT': config('DB_PORT'),
+        'OPTIONS': {
+            'sslmode': 'require',
+        },
 
     }
 }
