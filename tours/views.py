@@ -220,10 +220,13 @@ from rest_framework.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+from rest_framework.pagination import PageNumberPagination
 
 from .models import Guide, Tour, Offer, TourParticipant, TourGuideAssignment
 from .permissions import IsAdminOrOrganizerOwnerOrReadOnly, IsOrganizerOrAdmin, IsGuideSelf
-from .serializers import GuideSerializer, TourSerializer, OfferSerializer, ParticipantSerializer, TourGuideAssignmentSerializer
+from .serializers import GuideSerializer, TourSerializer, OfferSerializer, ParticipantSerializer, \
+    TourGuideAssignmentSerializer
+
 
 # -------------------------
 # Guide viewset
@@ -321,7 +324,14 @@ class GuideViewSet(viewsets.ModelViewSet):
 # -------------------------
 # TourGuideAssignment viewset
 # -------------------------
-
+# -------------------------
+# Pagination (server-side)
+# -------------------------
+class StandardResultsSetPagination(PageNumberPagination):
+    # Sensible defaults; client can request up to 50
+    page_size = 12
+    page_size_query_param = "page_size"
+    max_page_size = 50
 
 class TourViewSet(viewsets.ModelViewSet):
     """
@@ -334,6 +344,7 @@ class TourViewSet(viewsets.ModelViewSet):
     authentication_classes = [JWTAuthentication]
     serializer_class = TourSerializer
     permission_classes = [IsAdminOrOrganizerOwnerOrReadOnly]
+    pagination_class = StandardResultsSetPagination
 
     # def get_queryset(self):
     #     """
@@ -383,30 +394,60 @@ class TourViewSet(viewsets.ModelViewSet):
     #
     #     # Admins see all tours
     #     return base_queryset
-    def get_queryset(self):
-        user = self.request.user
-        qs = Tour.objects.select_related('organizer').order_by('-start_date')
-
-        # Prefetch related, but efficiently
-        qs = qs.prefetch_related(
-            'guides',
-            Prefetch('tour_participants', queryset=TourParticipant.objects.select_related('user')),
-            'offers'
+    # ---------- Queryset builder ----------
+    def _base_queryset(self):
+        """
+        Shared base queryset with safe, targeted prefetches.
+        NOTE: Avoid .only()/ .defer() unless you’ve verified serializer fields,
+        because restricting columns can break serialization.
+        """
+        return (
+            Tour.objects
+            .select_related("organizer")
+            .prefetch_related(
+                # Guides: prefetch the related Guide objects (lightweight)
+                "guides",
+                # Participants with their user in one go
+                Prefetch(
+                    "tour_participants",
+                    queryset=TourParticipant.objects.select_related("user")
+                ),
+                # Offers related to tour
+                "offers",
+            )
+            .order_by("-start_date")
         )
 
-        if not user.is_authenticated or user.role == 'tourist':
+    def get_queryset(self):
+        user = self.request.user
+        qs = self._base_queryset()
+
+        # Anonymous or tourist → all tours (read-only enforced by permissions)
+        if not user.is_authenticated or getattr(user, "role", "tourist") == "tourist":
             return qs
 
-        if user.role == 'organizer':
+        role = getattr(user, "role", None)
+
+        # Organizer → only their tours
+        if role == "organizer":
             return qs.filter(organizer=user)
 
-        if user.role == 'guide':
-            # Only tours where this guide is assigned
-            return qs.filter(guides=user.guide_profile)  # adjust for your Guide model
+        # Guide → tours where they're assigned.
+        # If your M2M is Tour.guides -> Guide model, and Guide has OneToOne to User,
+        # this filter will work even if guide_profile doesn't exist:
+        try:
+            return qs.filter(guides__user=user)  # preferred if Guide.user exists
+        except Exception:
+            # fallback: if you stored direct M2M to User or keep a user.guide_profile
+            if hasattr(user, "guide_profile"):
+                return qs.filter(guides=user.guide_profile)
+            return qs.none()  # no linkage found
 
-        # Admin sees all tours (pagination prevents crash)
-        return qs
-
+        # Admin → all tours
+        # (we never actually reach here because previous returns handle it,
+        # but leaving for clarity)
+        # if role == "admin":
+        #     return qs
 
     def perform_create(self, serializer):
         """
@@ -417,15 +458,20 @@ class TourViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("Only organizers or admins can create tours.")
         serializer.save(organizer=self.request.user)
 
-    @method_decorator(vary_on_headers('Authorization'), name='list')
-    @method_decorator(cache_page(60 * 5))  # Cache list response for 5 minutes
+    # ---------- Cached LIST for readonly audiences ----------
+    # Vary on Authorization so authenticated and anonymous caches don't collide.
+    @method_decorator(vary_on_headers("Authorization"))
+    @method_decorator(cache_page(60 * 5))  # 5 minutes
     def list(self, request, *args, **kwargs):
         """
-        Cached list endpoint to improve performance on repeated GET requests.
+        Cached list endpoint. Because we paginate and vary on Authorization,
+        admin/organizer/guide see their own fresh caches, while
+        anonymous/tourist traffic benefits most from caching.
         """
         return super().list(request, *args, **kwargs)
 
-    @action(detail=True, methods=['get'], url_path='guides', permission_classes=[IsAuthenticated], authentication_classes=[JWTAuthentication])
+    @action(detail=True, methods=['get'], url_path='guides', permission_classes=[IsAuthenticated],
+            authentication_classes=[JWTAuthentication])
     def guides(self, request, pk=None):
         """
         List guide assignments for a specific tour.
@@ -435,7 +481,8 @@ class TourViewSet(viewsets.ModelViewSet):
         """
         tour = get_object_or_404(Tour, pk=pk)
         if not (request.user.role == 'admin' or (request.user.role == 'organizer' and tour.organizer == request.user)):
-            return Response({'detail': 'Not authorized to view guide assignments for this tour.'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({'detail': 'Not authorized to view guide assignments for this tour.'},
+                            status=status.HTTP_403_FORBIDDEN)
 
         assignments = TourGuideAssignment.objects.filter(tour=tour)
         serializer = TourGuideAssignmentSerializer(assignments, many=True)
@@ -540,14 +587,16 @@ class TourGuideAssignmentViewSet(viewsets.GenericViewSet,
         guide_ids = request.data.get('guide_ids', [])
 
         if not tour_id or not isinstance(guide_ids, list) or not guide_ids:
-            return Response({"detail": "tour_id and guide_ids (non-empty list) are required."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "tour_id and guide_ids (non-empty list) are required."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         tour = get_object_or_404(Tour, id=tour_id)
 
         # Check permission
         user = request.user
         if not (user.role == 'admin' or (user.role == 'organizer' and tour.organizer == user)):
-            return Response({'detail': 'Not authorized to assign guides to this tour.'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({'detail': 'Not authorized to assign guides to this tour.'},
+                            status=status.HTTP_403_FORBIDDEN)
 
         created = []
         skipped = []
@@ -565,7 +614,8 @@ class TourGuideAssignmentViewSet(viewsets.GenericViewSet,
                         continue
 
                     # No duplicates: unique_together on (tour, guide)
-                    exists = TourGuideAssignment.objects.filter(tour=tour, guide=guide_user, status__in=['pending', 'accepted']).exists()
+                    exists = TourGuideAssignment.objects.filter(tour=tour, guide=guide_user,
+                                                                status__in=['pending', 'accepted']).exists()
                     if exists:
                         skipped.append({"guide_id": guide_id, "reason": "already assigned or pending"})
                         continue
@@ -573,7 +623,8 @@ class TourGuideAssignmentViewSet(viewsets.GenericViewSet,
                     assignment = TourGuideAssignment.objects.create(tour=tour, guide=guide_user, status='pending')
                     created.append(assignment)
         except IntegrityError:
-            return Response({"detail": "Database error while creating assignments."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"detail": "Database error while creating assignments."},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         serializer = self.get_serializer(created, many=True)
         response_data = {"created": serializer.data, "skipped": skipped}
@@ -589,7 +640,8 @@ class TourGuideAssignmentViewSet(viewsets.GenericViewSet,
 
         new_status = request.data.get('status')
         if new_status not in ['accepted', 'declined']:
-            return Response({'detail': 'Invalid status. Acceptable: accepted, declined.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Invalid status. Acceptable: accepted, declined.'},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         # Update responded_at timestamp
         assignment.status = new_status
@@ -612,7 +664,8 @@ class TourGuideAssignmentViewSet(viewsets.GenericViewSet,
     def cancel(self, request, pk=None):
         assignment = get_object_or_404(TourGuideAssignment, pk=pk)
 
-        if not (request.user.role == 'admin' or (request.user.role == 'organizer' and assignment.tour.organizer == request.user)):
+        if not (request.user.role == 'admin' or (
+                request.user.role == 'organizer' and assignment.tour.organizer == request.user)):
             return Response({'detail': 'Not authorized to cancel this assignment.'}, status=status.HTTP_403_FORBIDDEN)
 
         if assignment.status != 'pending':
@@ -715,7 +768,8 @@ class TourParticipantViewSet(viewsets.ModelViewSet):
     def approve_participant(self, request, pk=None):
         participant = self.get_object()
         # Only organizer of the tour or admin
-        if request.user.role not in ['admin', 'organizer'] or (request.user.role == 'organizer' and participant.tour.organizer != request.user):
+        if request.user.role not in ['admin', 'organizer'] or (
+                request.user.role == 'organizer' and participant.tour.organizer != request.user):
             return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
         participant.status = 'approved'
         participant.save()
@@ -724,7 +778,8 @@ class TourParticipantViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'], url_path='reject')
     def reject_participant(self, request, pk=None):
         participant = self.get_object()
-        if request.user.role not in ['admin', 'organizer'] or (request.user.role == 'organizer' and participant.tour.organizer != request.user):
+        if request.user.role not in ['admin', 'organizer'] or (
+                request.user.role == 'organizer' and participant.tour.organizer != request.user):
             return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
         participant.status = 'rejected'
         participant.save()
