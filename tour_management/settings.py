@@ -98,6 +98,7 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',  # Vite dev
     'https://localhost:5173',  # Vite dev
     'https://tour-mate-vite.netlify.app',  # Production frontend
+    'https://tour-management-backend-kn59.onrender.com' # Production backend
 ]
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 CORS_ALLOW_CREDENTIALS = True  # Allow cookies & auth headers
