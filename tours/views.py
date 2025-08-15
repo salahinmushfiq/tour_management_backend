@@ -207,7 +207,6 @@
 #         return Response({"detail": "Participant rejected."}, status=status.HTTP_200_OK)
 
 # tours/views.py
-from django.db.models import Prefetch
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from django.views.decorators.vary import vary_on_headers
@@ -323,163 +322,160 @@ class GuideViewSet(viewsets.ModelViewSet):
 # -------------------------
 
 
-# class TourViewSet(viewsets.ModelViewSet):
-#     """
-#     TourViewSet provides CRUD operations for Tour model with role-based access control:
-#     - Admins: full CRUD access to all tours
-#     - Organizers: full CRUD on tours they own
-#     - Tourists and unauthenticated users: read-only access to all tours
-#     """
-#
-#     authentication_classes = [JWTAuthentication]
-#     serializer_class = TourSerializer
-#     permission_classes = [IsAdminOrOrganizerOwnerOrReadOnly]
-#
-#     def get_queryset(self):
-#         """
-#         Return tours based on user role with optimized database queries.
-#
-#         Uses:
-#           - select_related: for single-valued relationships (ForeignKey) to reduce JOINs
-#           - prefetch_related: for reverse or many-to-many relations to reduce queries
-#
-#         Queryset behavior by role:
-#           - Tourists or anonymous users: all tours, read-only
-#           - Organizers: only tours they organize
-#           - Admin: all tours
-#
-#         Optimization details:
-#           - 'organizer' is ForeignKey, so select_related to join user once
-#           - 'guides' is ManyToManyField to Guide model, prefetch related guides
-#           - 'tour_participants' is reverse FK to TourParticipant, prefetch participants and also select related user in participants
-#           - 'offers' is reverse FK to Offer, prefetch offers
-#
-#         This drastically reduces the number of queries and improves performance.
-#         """
-#         user = self.request.user
-#
-#         # Base queryset with related fields optimized:
-#         # 'organizer' FK (single) → select_related
-#         # 'guides' M2M → prefetch_related
-#         # 'tour_participants' reverse FK → prefetch_related with select_related for user
-#         # 'offers' reverse FK → prefetch_related
-#         base_queryset = Tour.objects.select_related(
-#             'organizer'  # ForeignKey, single join for organizer user
-#         ).prefetch_related(
-#             'guides',  # ManyToMany guides
-#             # Prefetch participants with their related user to avoid N+1 when serializing user fields
-#             # 'tour_participants' is related_name for TourParticipant objects on Tour model
-#             'tour_participants__user',
-#             'offers',  # Offers related to this tour
-#         ).order_by('-start_date')
-#
-#         # Unauthenticated or tourist users see all tours read-only
-#         if not user.is_authenticated or user.role == 'tourist':
-#             return base_queryset
-#
-#         # Organizers see only their own tours
-#         if user.role == 'organizer':
-#             return base_queryset.filter(organizer=user)
-#
-#         # Admins see all tours
-#         return base_queryset
-#
-#     def perform_create(self, serializer):
-#         """
-#         Allow only admins or organizers to create tours.
-#         Automatically set the creator as organizer.
-#         """
-#         if self.request.user.role not in ['organizer', 'admin']:
-#             raise PermissionDenied("Only organizers or admins can create tours.")
-#         serializer.save(organizer=self.request.user)
-#
-#     @method_decorator(vary_on_headers('Authorization'), name='list')
-#     @method_decorator(cache_page(60 * 5))  # Cache list response for 5 minutes
-#     def list(self, request, *args, **kwargs):
-#         """
-#         Cached list endpoint to improve performance on repeated GET requests.
-#         """
-#         return super().list(request, *args, **kwargs)
-#
-#     @action(detail=True, methods=['get'], url_path='guides', permission_classes=[IsAuthenticated], authentication_classes=[JWTAuthentication])
-#     def guides(self, request, pk=None):
-#         """
-#         List guide assignments for a specific tour.
-#
-#         Permissions:
-#           - Only the tour organizer or admin can view guide assignments.
-#         """
-#         tour = get_object_or_404(Tour, pk=pk)
-#         if not (request.user.role == 'admin' or (request.user.role == 'organizer' and tour.organizer == request.user)):
-#             return Response({'detail': 'Not authorized to view guide assignments for this tour.'}, status=status.HTTP_403_FORBIDDEN)
-#
-#         assignments = TourGuideAssignment.objects.filter(tour=tour)
-#         serializer = TourGuideAssignmentSerializer(assignments, many=True)
-#         return Response(serializer.data)
-#
-#     @action(detail=True, methods=['get'], url_path='participants', permission_classes=[IsAuthenticated])
-#     def participants(self, request, pk=None):
-#         """
-#         List participants of a specific tour.
-#
-#         Permissions:
-#           - Only the tour organizer or admin can view participants.
-#         """
-#         tour = get_object_or_404(Tour, pk=pk)
-#         if not (request.user.role == 'admin' or (request.user.role == 'organizer' and tour.organizer == request.user)):
-#             return Response({'detail': 'Not authorized to view participants for this tour.'},
-#                             status=status.HTTP_403_FORBIDDEN)
-#
-#         participants = TourParticipant.objects.filter(tour=tour)
-#         serializer = ParticipantSerializer(participants, many=True)
-#         return Response(serializer.data)
-#
-#     @action(detail=True, methods=['get', 'post'])
-#     def offers(self, request, pk=None):
-#         """
-#         Get or create offers for a specific tour.
-#
-#         GET: List all offers for the tour.
-#         POST: Create a new offer for the tour.
-#         """
-#         tour = self.get_object()
-#
-#         if request.method == 'GET':
-#             serializer = OfferSerializer(tour.offers.all(), many=True)
-#             return Response(serializer.data)
-#
-#         elif request.method == 'POST':
-#             serializer = OfferSerializer(data=request.data)
-#             serializer.is_valid(raise_exception=True)
-#             serializer.save(tour=tour)
-#             return Response(serializer.data, status=201)
-#
+class TourViewSet(viewsets.ModelViewSet):
+    """
+    TourViewSet provides CRUD operations for Tour model with role-based access control:
+    - Admins: full CRUD access to all tours
+    - Organizers: full CRUD on tours they own
+    - Tourists and unauthenticated users: read-only access to all tours
+    """
 
+    authentication_classes = [JWTAuthentication]
+    serializer_class = TourSerializer
+    permission_classes = [IsAdminOrOrganizerOwnerOrReadOnly]
 
-def get_queryset(self):
-    user = self.request.user
-    qs = Tour.objects.select_related('organizer').order_by('-start_date')
+    # def get_queryset(self):
+    #     """
+    #     Return tours based on user role with optimized database queries.
+    #
+    #     Uses:
+    #       - select_related: for single-valued relationships (ForeignKey) to reduce JOINs
+    #       - prefetch_related: for reverse or many-to-many relations to reduce queries
+    #
+    #     Queryset behavior by role:
+    #       - Tourists or anonymous users: all tours, read-only
+    #       - Organizers: only tours they organize
+    #       - Admin: all tours
+    #
+    #     Optimization details:
+    #       - 'organizer' is ForeignKey, so select_related to join user once
+    #       - 'guides' is ManyToManyField to Guide model, prefetch related guides
+    #       - 'tour_participants' is reverse FK to TourParticipant, prefetch participants and also select related user in participants
+    #       - 'offers' is reverse FK to Offer, prefetch offers
+    #
+    #     This drastically reduces the number of queries and improves performance.
+    #     """
+    #     user = self.request.user
+    #
+    #     # Base queryset with related fields optimized:
+    #     # 'organizer' FK (single) → select_related
+    #     # 'guides' M2M → prefetch_related
+    #     # 'tour_participants' reverse FK → prefetch_related with select_related for user
+    #     # 'offers' reverse FK → prefetch_related
+    #     base_queryset = Tour.objects.select_related(
+    #         'organizer'  # ForeignKey, single join for organizer user
+    #     ).prefetch_related(
+    #         'guides',  # ManyToMany guides
+    #         # Prefetch participants with their related user to avoid N+1 when serializing user fields
+    #         # 'tour_participants' is related_name for TourParticipant objects on Tour model
+    #         'tour_participants__user',
+    #         'offers',  # Offers related to this tour
+    #     ).order_by('-start_date')
+    #
+    #     # Unauthenticated or tourist users see all tours read-only
+    #     if not user.is_authenticated or user.role == 'tourist':
+    #         return base_queryset
+    #
+    #     # Organizers see only their own tours
+    #     if user.role == 'organizer':
+    #         return base_queryset.filter(organizer=user)
+    #
+    #     # Admins see all tours
+    #     return base_queryset
+    def get_queryset(self):
+        user = self.request.user
+        qs = Tour.objects.select_related('organizer').order_by('-start_date')
 
-    # Prefetch related, but efficiently
-    qs = qs.prefetch_related(
-        'guides',
-        Prefetch('tour_participants', queryset=TourParticipant.objects.select_related('user')),
-        'offers'
-    )
+        # Prefetch related, but efficiently
+        qs = qs.prefetch_related(
+            'guides',
+            Prefetch('tour_participants', queryset=TourParticipant.objects.select_related('user')),
+            'offers'
+        )
 
-    if not user.is_authenticated or user.role == 'tourist':
+        if not user.is_authenticated or user.role == 'tourist':
+            return qs
+
+        if user.role == 'organizer':
+            return qs.filter(organizer=user)
+
+        if user.role == 'guide':
+            # Only tours where this guide is assigned
+            return qs.filter(guides=user.guide_profile)  # adjust for your Guide model
+
+        # Admin sees all tours (pagination prevents crash)
         return qs
 
-    if user.role == 'organizer':
-        return qs.filter(organizer=user)
 
-    if user.role == 'guide':
-        # Only tours where this guide is assigned
-        return qs.filter(guides=user.guide_profile)  # adjust for your Guide model
+    def perform_create(self, serializer):
+        """
+        Allow only admins or organizers to create tours.
+        Automatically set the creator as organizer.
+        """
+        if self.request.user.role not in ['organizer', 'admin']:
+            raise PermissionDenied("Only organizers or admins can create tours.")
+        serializer.save(organizer=self.request.user)
 
-    # Admin sees all tours (pagination prevents crash)
-    return qs
+    @method_decorator(vary_on_headers('Authorization'), name='list')
+    @method_decorator(cache_page(60 * 5))  # Cache list response for 5 minutes
+    def list(self, request, *args, **kwargs):
+        """
+        Cached list endpoint to improve performance on repeated GET requests.
+        """
+        return super().list(request, *args, **kwargs)
 
+    @action(detail=True, methods=['get'], url_path='guides', permission_classes=[IsAuthenticated], authentication_classes=[JWTAuthentication])
+    def guides(self, request, pk=None):
+        """
+        List guide assignments for a specific tour.
+
+        Permissions:
+          - Only the tour organizer or admin can view guide assignments.
+        """
+        tour = get_object_or_404(Tour, pk=pk)
+        if not (request.user.role == 'admin' or (request.user.role == 'organizer' and tour.organizer == request.user)):
+            return Response({'detail': 'Not authorized to view guide assignments for this tour.'}, status=status.HTTP_403_FORBIDDEN)
+
+        assignments = TourGuideAssignment.objects.filter(tour=tour)
+        serializer = TourGuideAssignmentSerializer(assignments, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['get'], url_path='participants', permission_classes=[IsAuthenticated])
+    def participants(self, request, pk=None):
+        """
+        List participants of a specific tour.
+
+        Permissions:
+          - Only the tour organizer or admin can view participants.
+        """
+        tour = get_object_or_404(Tour, pk=pk)
+        if not (request.user.role == 'admin' or (request.user.role == 'organizer' and tour.organizer == request.user)):
+            return Response({'detail': 'Not authorized to view participants for this tour.'},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        participants = TourParticipant.objects.filter(tour=tour)
+        serializer = ParticipantSerializer(participants, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['get', 'post'])
+    def offers(self, request, pk=None):
+        """
+        Get or create offers for a specific tour.
+
+        GET: List all offers for the tour.
+        POST: Create a new offer for the tour.
+        """
+        tour = self.get_object()
+
+        if request.method == 'GET':
+            serializer = OfferSerializer(tour.offers.all(), many=True)
+            return Response(serializer.data)
+
+        elif request.method == 'POST':
+            serializer = OfferSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            serializer.save(tour=tour)
+            return Response(serializer.data, status=201)
 
 
 class TourGuideAssignmentViewSet(viewsets.GenericViewSet,
