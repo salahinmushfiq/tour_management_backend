@@ -30,7 +30,7 @@ DEBUG = config('DEBUG', cast=bool)  # False in production
 SECRET_KEY = config('SECRET_KEY')  # Load from .env
 ALLOWED_HOSTS = [
     'localhost', '127.0.0.1',
-    '.railway.app',              # Allow Railway subdomains
+    '.onrender.com',              # Allow all subdomains on Render
     'tour-mate-vite.netlify.app' # Frontend in production
 ]
 
@@ -127,15 +127,7 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 6,
 }
 
-if not DEBUG:
-    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-    EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
-    EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
-    EMAIL_USE_TLS = True
-    EMAIL_HOST_USER = config('EMAIL_HOST_USER')
-    EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
-else:
-    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
 
 DJOSER = {
     'DOMAIN': 'localhost:5173',  # ✅ base domain used in emails
