@@ -1,3 +1,4 @@
+# costs/views.py
 from rest_framework import viewsets, permissions
 from .models import CostEntry
 from .serializers import CostEntrySerializer

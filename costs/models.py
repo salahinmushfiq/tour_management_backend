@@ -1,3 +1,4 @@
+# costs/models.py
 from django.db import models
 from django.conf import settings
 from tours.models import Tour

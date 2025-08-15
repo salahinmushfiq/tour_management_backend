@@ -1,3 +1,4 @@
+# media_gallery/views.py
 from rest_framework import viewsets, permissions
 from .models import MediaFile
 from .serializers import MediaFileSerializer
