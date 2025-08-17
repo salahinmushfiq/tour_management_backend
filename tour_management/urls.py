@@ -41,7 +41,6 @@ urlpatterns = [
     path('api/locations/', include('locations.urls')),
     # path('auth/', include('djoser.urls.jwt')),
     path('social-auth/', include('social_django.urls', namespace='social')),  # <- This line!
-
     path("robots.txt", robots_txt),
 
 

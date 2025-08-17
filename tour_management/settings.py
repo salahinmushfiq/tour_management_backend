@@ -19,6 +19,7 @@ import cloudinary.api
 import logging
 import rest_framework.throttling
 from corsheaders.defaults import default_headers
+import urllib.parse  # added for Redis URL parsing
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -32,7 +33,6 @@ ALLOWED_HOSTS = [
     'localhost', '127.0.0.1',
     '.onrender.com',              # Allow all subdomains on Render
     'tour-mate-vite.netlify.app' # Frontend in production
-
 ]
 
 # ---------------------------
@@ -92,6 +92,7 @@ MIDDLEWARE = [
     'social_django.middleware.SocialAuthExceptionMiddleware',
     'django.middleware.common.BrokenLinkEmailsMiddleware'
 ]
+
 # ---------------------------
 # 🔹 CORS & CSRF Settings
 # ---------------------------
@@ -128,8 +129,6 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 6,
 }
-
-
 
 DJOSER = {
     'DOMAIN': 'localhost:5173',  # ✅ base domain used in emails
@@ -168,7 +167,6 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE = ['email', 'profile']
 SOCIAL_AUTH_REDIRECT_IS_HTTPS = not DEBUG
 
 SOCIAL_AUTH_PIPELINE = (
-
     'social_core.pipeline.social_auth.social_details',
     'social_core.pipeline.social_auth.social_uid',
     'social_core.pipeline.social_auth.auth_allowed',
@@ -185,15 +183,14 @@ SOCIAL_AUTH_FACEBOOK_SCOPE = ['email']
 SOCIAL_AUTH_FACEBOOK_PROFILE_EXTRA_PARAMS = {
     'fields': 'id, name, email'
 }
-# Login redirect URLs
-LOGIN_REDIRECT_URL = '/'
 
+LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates']
-        ,
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -221,13 +218,15 @@ DATABASES = {
         'PASSWORD': config('DB_PASSWORD'),
         'HOST': config('DB_HOST'),
         'PORT': config('DB_PORT'),
-        'OPTIONS': {
-            'sslmode': 'require',
-        },
-
+        # 'OPTIONS': {
+        #     'sslmode': 'require',
+        # },
     }
 }
 
+# ---------------------------
+# 🔹 Cloudinary
+# ---------------------------
 CLOUDINARY = {
     'cloud_name': config('CLOUDINARY_CLOUD_NAME'),
     'api_key': config('CLOUDINARY_API_KEY'),
@@ -239,33 +238,23 @@ cloudinary.config(
     api_secret=CLOUDINARY['api_secret'],
     secure=True,
 )
-# Password validation
-# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
+# ---------------------------
+# 🔹 Password Validation
+# ---------------------------
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',},
 ]
 
-# Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
-
+# ---------------------------
+# 🔹 Internationalization
+# ---------------------------
 LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
 
 # ---------------------------
@@ -280,42 +269,58 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# ---------------------------
+# 🔹 Security for Production
+# ---------------------------
 if not DEBUG:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_SSL_REDIRECT = True
-
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
-
     SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_BROWSER_XSS_FILTER = True
-
     CSRF_COOKIE_HTTPONLY = True
     SESSION_COOKIE_HTTPONLY = True
-
     X_FRAME_OPTIONS = 'DENY'
 
-# 🔹 Caching
 # ---------------------------
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'tourmate-cache',
-    }
-}
+# 🔹 Caching (dynamic: Redis if available, fallback to local memory)
+# ---------------------------
+REDIS_URL = config('REDIS_URL', default=None)
 
+if REDIS_URL:
+    SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+    SESSION_CACHE_ALIAS = "default"
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'IGNORE_EXCEPTIONS': True,
+            }
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'tourmate-cache',
+        }
+    }
+# ---------------------------
+# 🔹 Logging
+# ---------------------------
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'handlers': {
-    'console': {
-        'class': 'logging.StreamHandler',
+        'console': {'class': 'logging.StreamHandler',},
     },
-},
     'root': {
-    'handlers': ['console'],
-    'level': 'DEBUG' if DEBUG else 'INFO',
+        'handlers': ['console'],
+        'level': 'DEBUG' if DEBUG else 'INFO',
     }
 }

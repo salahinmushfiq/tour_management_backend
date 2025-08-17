@@ -52,6 +52,7 @@ class TourGuideAssignmentSerializer(serializers.ModelSerializer):
 # Tour Serializer (Full Data)
 # ------------------------------
 class TourSerializer(serializers.ModelSerializer):
+    organizer_email = serializers.EmailField(source='organizer.email', read_only=True)
     organizer = serializers.StringRelatedField(read_only=True)
     guides = GuideSerializer(many=True, read_only=True)
     participants = serializers.SerializerMethodField()
@@ -61,6 +62,7 @@ class TourSerializer(serializers.ModelSerializer):
         model = Tour
         fields = [
             'id', 'organizer', 'title', 'description', 'start_date', 'end_date',
+            'organizer_email',  # for consistent access in frontend
             'start_location', 'end_location', 'is_custom_group', 'max_participants',
             'cost_per_person', 'cover_image', 'category',
             'guides', 'participants', 'offers'

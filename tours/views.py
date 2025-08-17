@@ -221,6 +221,7 @@ from django.shortcuts import get_object_or_404
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework.pagination import PageNumberPagination
+from django.db.models import Q
 
 from .models import Guide, Tour, Offer, TourParticipant, TourGuideAssignment
 from .permissions import IsAdminOrOrganizerOwnerOrReadOnly, IsOrganizerOrAdmin, IsGuideSelf
@@ -333,6 +334,7 @@ class StandardResultsSetPagination(PageNumberPagination):
     page_size_query_param = "page_size"
     max_page_size = 50
 
+
 class TourViewSet(viewsets.ModelViewSet):
     """
     TourViewSet provides CRUD operations for Tour model with role-based access control:
@@ -422,32 +424,44 @@ class TourViewSet(viewsets.ModelViewSet):
         user = self.request.user
         qs = self._base_queryset()
 
-        # Anonymous or tourist → all tours (read-only enforced by permissions)
+        # Role-based filtering
         if not user.is_authenticated or getattr(user, "role", "tourist") == "tourist":
-            return qs
+            pass  # all tours
+        elif user.role == "organizer":
+            qs = qs.filter(organizer=user)
+        elif user.role == "guide":
+            try:
+                qs = qs.filter(guides__user=user)
+            except Exception:
+                if hasattr(user, "guide_profile"):
+                    qs = qs.filter(guides=user.guide_profile)
+                else:
+                    qs = qs.none()
 
-        role = getattr(user, "role", None)
+        # ---- Server-side query filters ----
+        category = self.request.query_params.get('category')
+        location = self.request.query_params.get('start_location')
+        start_date = self.request.query_params.get('start_date')
+        end_date = self.request.query_params.get('end_date')
+        search = self.request.query_params.get('search')
 
-        # Organizer → only their tours
-        if role == "organizer":
-            return qs.filter(organizer=user)
+        if category:
+            qs = qs.filter(category__iexact=category)
+        if location:
+            qs = qs.filter(start_location__iexact=location)
+        if start_date:
+            qs = qs.filter(start_date__gte=start_date)
+        if end_date:
+            qs = qs.filter(end_date__lte=end_date)
+        if search:
+            qs = qs.filter(
+                Q(title__icontains=search) |
+                Q(category__icontains=search) |
+                Q(start_location__icontains=search) |
+                Q(end_location__icontains=search)
+            )
 
-        # Guide → tours where they're assigned.
-        # If your M2M is Tour.guides -> Guide model, and Guide has OneToOne to User,
-        # this filter will work even if guide_profile doesn't exist:
-        try:
-            return qs.filter(guides__user=user)  # preferred if Guide.user exists
-        except Exception:
-            # fallback: if you stored direct M2M to User or keep a user.guide_profile
-            if hasattr(user, "guide_profile"):
-                return qs.filter(guides=user.guide_profile)
-            return qs.none()  # no linkage found
-
-        # Admin → all tours
-        # (we never actually reach here because previous returns handle it,
-        # but leaving for clarity)
-        # if role == "admin":
-        #     return qs
+        return qs
 
     def perform_create(self, serializer):
         """

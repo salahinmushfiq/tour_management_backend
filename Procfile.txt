@@ -1,1 +1,1 @@
-web: gunicorn tour_management.wsgi --log-file -
+web: gunicorn tour_management.wsgi --workers 4 --bind 0.0.0.0:$PORT
