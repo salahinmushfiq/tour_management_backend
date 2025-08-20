@@ -63,6 +63,7 @@ class TourParticipant(models.Model):
         ('pending', 'Pending'),
         ('approved', 'Approved'),
         ('rejected', 'Rejected'),
+        ('completed', 'Completed'),
     ]
     tour = models.ForeignKey(
         Tour,
@@ -80,7 +81,9 @@ class TourParticipant(models.Model):
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
 
     class Meta:
-        unique_together = ('tour', 'user')
+        constraints = [
+            models.UniqueConstraint(fields=['tour', 'user'], name='unique_tour_user')
+        ]
 
     def __str__(self):
         return f"{self.user.email} in {self.tour.title}"

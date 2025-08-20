@@ -53,7 +53,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
             tours = obj.organized_tours.prefetch_related(
                 'guides', 'offers', 'tour_participants__user'
             )
-            return TourSerializer(tours, many=True).data
+            return TourSerializer(
+                tours,
+                many=True,
+                context={'user': obj}  # optional for organizers
+            ).data
         return []
 
     # ------------------------------
@@ -66,7 +70,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
             ).prefetch_related(
                 'guides', 'offers', 'tour_participants__user'
             ).distinct()
-            return TourSerializer(tours, many=True).data
+            return TourSerializer(
+                tours,
+                many=True,
+                context={'user': obj}  # <-- pass the user here
+            ).data
         return []
 
     # ------------------------------

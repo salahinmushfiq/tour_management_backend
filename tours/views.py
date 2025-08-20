@@ -213,6 +213,7 @@ from django.views.decorators.cache import cache_page
 from django.views.decorators.vary import vary_on_headers
 from rest_framework import viewsets, mixins, permissions, status
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -222,11 +223,14 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework.pagination import PageNumberPagination
 from django.db.models import Q
-
+from rest_framework import serializers
 from .models import Guide, Tour, Offer, TourParticipant, TourGuideAssignment
+from accounts.models import User
 from .permissions import IsAdminOrOrganizerOwnerOrReadOnly, IsOrganizerOrAdmin, IsGuideSelf
 from .serializers import GuideSerializer, TourSerializer, OfferSerializer, ParticipantSerializer, \
-    TourGuideAssignmentSerializer
+    TourGuideAssignmentSerializer, MyTourSerializer
+from django.utils.timezone import now
+from django.conf import settings
 
 
 # -------------------------
@@ -234,9 +238,29 @@ from .serializers import GuideSerializer, TourSerializer, OfferSerializer, Parti
 # -------------------------
 class GuideViewSet(viewsets.ModelViewSet):
     authentication_classes = [JWTAuthentication]
-    queryset = Guide.objects.all()
     serializer_class = GuideSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        tour_id = self.request.query_params.get("tour_id")
+        qs = Guide.objects.all()
+        if tour_id:
+            try:
+                tour = Tour.objects.get(pk=tour_id)
+            except Tour.DoesNotExist:
+                return qs.none()
+
+            # Users who are already assigned to conflicting tours
+            conflicting_user_ids = TourGuideAssignment.objects.filter(
+                status="accepted",
+                tour__start_date__lt=tour.end_date,
+                tour__end_date__gt=tour.start_date,
+            ).values_list("guide_id", flat=True)
+
+            # Exclude Guides whose user is in conflicting_user_ids
+            qs = qs.exclude(user__id__in=conflicting_user_ids)
+
+        return qs
 
 
 # -------------------------
@@ -429,14 +453,11 @@ class TourViewSet(viewsets.ModelViewSet):
             pass  # all tours
         elif user.role == "organizer":
             qs = qs.filter(organizer=user)
-        elif user.role == "guide":
-            try:
-                qs = qs.filter(guides__user=user)
-            except Exception:
-                if hasattr(user, "guide_profile"):
-                    qs = qs.filter(guides=user.guide_profile)
-                else:
-                    qs = qs.none()
+            if user.role == 'guide':
+                return Tour.objects.filter(
+                    guides__user=user,
+                    tourguideassignment__status='accepted'
+                ).distinct().order_by('-start_date')
 
         # ---- Server-side query filters ----
         category = self.request.query_params.get('category')
@@ -484,21 +505,47 @@ class TourViewSet(viewsets.ModelViewSet):
         """
         return super().list(request, *args, **kwargs)
 
-    @action(detail=True, methods=['get'], url_path='guides', permission_classes=[IsAuthenticated],
-            authentication_classes=[JWTAuthentication])
+    # @action(detail=True, methods=['get'], url_path='guides', permission_classes=[IsAuthenticated],
+    #         authentication_classes=[JWTAuthentication])
+    # def guides(self, request, pk=None):
+    #     """
+    #        List all guides **actually assigned to the tour** (accepted).
+    #        Admins or the organizer can view all guides.
+    #        """
+    #     tour = get_object_or_404(Tour, pk=pk)
+    #     if not (request.user.role == 'admin' or (request.user.role == 'organizer' and tour.organizer == request.user)):
+    #         return Response({'detail': 'Not authorized to view guides for this tour.'},
+    #                         status=status.HTTP_403_FORBIDDEN)
+    #
+    #     # Only show guides that were accepted
+    #     accepted_assignments = TourGuideAssignment.objects.filter(tour=tour, status='accepted')
+    #     serializer = self.get_serializer(accepted_assignments, many=True)
+    #     return Response(serializer.data)
+    @action(detail=True, methods=['get'], url_path='guides')
     def guides(self, request, pk=None):
         """
-        List guide assignments for a specific tour.
-
-        Permissions:
-          - Only the tour organizer or admin can view guide assignments.
+        List guides for a tour:
+          - Only accepted guides for tourists
+          - Organizer/Admin see all (accepted + pending)
         """
         tour = get_object_or_404(Tour, pk=pk)
-        if not (request.user.role == 'admin' or (request.user.role == 'organizer' and tour.organizer == request.user)):
-            return Response({'detail': 'Not authorized to view guide assignments for this tour.'},
-                            status=status.HTTP_403_FORBIDDEN)
 
-        assignments = TourGuideAssignment.objects.filter(tour=tour)
+        user = request.user
+        if user.role not in ['admin', 'organizer', 'guide', 'tourist']:
+            return Response({'detail': 'Not authorized.'}, status=status.HTTP_403_FORBIDDEN)
+
+        if user.role in ['admin', 'organizer']:
+            # Show all assignments
+            assignments = TourGuideAssignment.objects.filter(tour=tour)
+        elif user.role == 'guide':
+            # Only self if accepted
+            assignments = TourGuideAssignment.objects.filter(tour=tour, guide=user, status='accepted')
+        else:
+            # Only show accepted assignments
+            assignments = TourGuideAssignment.objects.filter(tour=tour, status='accepted')
+
+        # Ensure each assignment returns Guide object
+        # Serializer already maps guide -> guide_profile
         serializer = TourGuideAssignmentSerializer(assignments, many=True)
         return Response(serializer.data)
 
@@ -654,19 +701,26 @@ class TourGuideAssignmentViewSet(viewsets.GenericViewSet,
 
         new_status = request.data.get('status')
         if new_status not in ['accepted', 'declined']:
-            return Response({'detail': 'Invalid status. Acceptable: accepted, declined.'},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {'detail': 'Invalid status. Acceptable: accepted, declined.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # Update responded_at timestamp
         assignment.status = new_status
         assignment.responded_at = timezone.now()
         assignment.save()
 
-        # If accepted, optionally add guide to Tour.many-to-many guides (if desired)
-        # WARNING: you must decide whether accepted assignment should auto-add to Tour.guides
-        # If desired uncomment below:
-        # if new_status == 'accepted':
-        #     assignment.tour.guides.add(assignment.guide)  # but assignment.guide is a User, your Tour.guides expects Guide model object in current code. decide with your model design.
+        # If accepted → add guide to Tour.guides (Guide model, not User)
+        if new_status == 'accepted':
+            try:
+                guide_profile = assignment.guide.guide  # because User → OneToOne → Guide
+                assignment.tour.guides.add(guide_profile)
+            except Guide.DoesNotExist:
+                return Response(
+                    {'detail': 'Guide profile not found for this user.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
         serializer = self.get_serializer(assignment)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -771,12 +825,25 @@ class TourParticipantViewSet(viewsets.ModelViewSet):
         else:
             return TourParticipant.objects.filter(user=user)
 
+    # def perform_create(self, serializer):
+    #     user = self.request.user
+    #     if not user.is_authenticated or user.role != 'tourist':
+    #         raise PermissionDenied("Only tourists can join tours.")
+    #     # Initial status set to pending
+    #     serializer.save(user=user, status='pending')
     def perform_create(self, serializer):
         user = self.request.user
         if not user.is_authenticated or user.role != 'tourist':
             raise PermissionDenied("Only tourists can join tours.")
-        # Initial status set to pending
-        serializer.save(user=user, status='pending')
+
+        tour_id = self.request.data.get("tour")  # Make sure the tour ID comes in the request
+        tour = get_object_or_404(Tour, pk=tour_id)
+
+        # Check if the user already joined
+        if TourParticipant.objects.filter(user=user, tour=tour).exists():
+            raise PermissionDenied("You have already joined this tour.")
+
+        serializer.save(user=user, tour=tour, status='pending')
 
     @action(detail=True, methods=['patch'], url_path='approve')
     def approve_participant(self, request, pk=None):
@@ -798,3 +865,64 @@ class TourParticipantViewSet(viewsets.ModelViewSet):
         participant.status = 'rejected'
         participant.save()
         return Response({"detail": "Participant rejected."}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='my-tours', permission_classes=[permissions.IsAuthenticated],
+            authentication_classes=[JWTAuthentication])
+    def my_tours(self, request):
+        user = request.user
+        if user.role == "tourist":
+            tours = Tour.objects.filter(tour_participants__user=user).distinct()
+        elif user.role == "guide":
+            tours = Tour.objects.filter(guides__guide=user).distinct()
+        elif user.role in ["admin", "organizer"]:
+            tours = Tour.objects.filter(organizer=user).distinct()
+        else:
+            tours = Tour.objects.none()
+
+        serializer = MyTourSerializer(tours, many=True, context={"request": request})
+        return Response(serializer.data)
+
+
+class TouristToursView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+
+    def get(self, request):
+        user = request.user
+        now_date = now()
+
+        # All participations by this user
+        user_participations = TourParticipant.objects.filter(user=user)
+
+        # Pending tours
+        pending_tours = Tour.objects.filter(
+            tour_participants__in=user_participations.filter(status="pending")
+        ).distinct()
+
+        # Active/approved tours not yet ended
+        active_tours = Tour.objects.filter(
+            tour_participants__in=user_participations.filter(status="approved"),
+            end_date__gte=now_date
+        ).distinct()
+
+        # Past tours (completed or approved and ended)
+        past_tours = Tour.objects.filter(
+            tour_participants__in=user_participations.filter(status__in=["completed", "approved"]),
+            end_date__lt=now_date
+        ).distinct()
+
+        # Available tours (user has not joined/requested yet)
+        joined_tour_ids = user_participations.values_list("tour_id", flat=True)
+        # available_tours = Tour.objects.exclude(id__in=joined_tour_ids)
+        available_tours = Tour.objects.exclude(id__in=joined_tour_ids).filter(start_date__gte=now())
+
+        # Serialize with user context for status field
+        context = {"user": user}
+        data = {
+            "available_tours": TourSerializer(available_tours, many=True, context=context).data,
+            "pending_tours": TourSerializer(pending_tours, many=True, context=context).data,
+            "active_tours": TourSerializer(active_tours, many=True, context=context).data,
+            "past_tours": TourSerializer(past_tours, many=True, context=context).data,
+        }
+
+        return Response(data)
