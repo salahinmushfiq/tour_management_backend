@@ -866,22 +866,6 @@ class TourParticipantViewSet(viewsets.ModelViewSet):
         participant.save()
         return Response({"detail": "Participant rejected."}, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=['get'], url_path='my-tours', permission_classes=[permissions.IsAuthenticated],
-            authentication_classes=[JWTAuthentication])
-    def my_tours(self, request):
-        user = request.user
-        if user.role == "tourist":
-            tours = Tour.objects.filter(tour_participants__user=user).distinct()
-        elif user.role == "guide":
-            tours = Tour.objects.filter(guides__guide=user).distinct()
-        elif user.role in ["admin", "organizer"]:
-            tours = Tour.objects.filter(organizer=user).distinct()
-        else:
-            tours = Tour.objects.none()
-
-        serializer = MyTourSerializer(tours, many=True, context={"request": request})
-        return Response(serializer.data)
-
 
 class TouristToursView(APIView):
     permission_classes = [IsAuthenticated]
