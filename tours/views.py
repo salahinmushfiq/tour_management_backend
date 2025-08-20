@@ -867,6 +867,17 @@ class TourParticipantViewSet(viewsets.ModelViewSet):
         return Response({"detail": "Participant rejected."}, status=status.HTTP_200_OK)
 
 
+from django.utils.timezone import now
+from django.db.models import Q
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+
+from .models import Tour, TourParticipant
+from .serializers import TourSerializer
+
+
 class TouristToursView(APIView):
     permission_classes = [IsAuthenticated]
     authentication_classes = [JWTAuthentication]
@@ -875,38 +886,49 @@ class TouristToursView(APIView):
         user = request.user
         now_date = now()
 
-        # All participations by this user
-        user_participations = TourParticipant.objects.filter(user=user)
+        try:
+            # Prefetch participant objects for this user
+            user_participations = TourParticipant.objects.filter(user=user).select_related('tour')
 
-        # Pending tours
-        pending_tours = Tour.objects.filter(
-            tour_participants__in=user_participations.filter(status="pending")
-        ).distinct()
+            joined_tour_ids = user_participations.values_list('tour_id', flat=True)
 
-        # Active/approved tours not yet ended
-        active_tours = Tour.objects.filter(
-            tour_participants__in=user_participations.filter(status="approved"),
-            end_date__gte=now_date
-        ).distinct()
+            # Available tours: not joined yet, start date in future
+            available_tours = (
+                Tour.objects.exclude(id__in=joined_tour_ids)
+                .filter(start_date__gte=now_date)
+                .select_related('organizer')
+            )
 
-        # Past tours (completed or approved and ended)
-        past_tours = Tour.objects.filter(
-            tour_participants__in=user_participations.filter(status__in=["completed", "approved"]),
-            end_date__lt=now_date
-        ).distinct()
+            # Tours grouped by status
+            # Pending tours
+            pending_tours = Tour.objects.filter(
+                tour_participants__in=user_participations.filter(status="pending")
+            ).distinct().select_related('organizer')
 
-        # Available tours (user has not joined/requested yet)
-        joined_tour_ids = user_participations.values_list("tour_id", flat=True)
-        # available_tours = Tour.objects.exclude(id__in=joined_tour_ids)
-        available_tours = Tour.objects.exclude(id__in=joined_tour_ids).filter(start_date__gte=now())
+            # Active tours: approved and not ended
+            active_tours = Tour.objects.filter(
+                tour_participants__in=user_participations.filter(status="approved"),
+                end_date__gte=now_date
+            ).distinct().select_related('organizer')
 
-        # Serialize with user context for status field
-        context = {"user": user}
-        data = {
-            "available_tours": TourSerializer(available_tours, many=True, context=context).data,
-            "pending_tours": TourSerializer(pending_tours, many=True, context=context).data,
-            "active_tours": TourSerializer(active_tours, many=True, context=context).data,
-            "past_tours": TourSerializer(past_tours, many=True, context=context).data,
-        }
+            # Past tours: approved/completed and ended
+            past_tours = Tour.objects.filter(
+                tour_participants__in=user_participations.filter(status__in=["completed", "approved"]),
+                end_date__lt=now_date
+            ).distinct().select_related('organizer')
 
-        return Response(data)
+            # Serialize all with context
+            context = {"user": user}
+            data = {
+                "available_tours": TourSerializer(available_tours, many=True, context=context).data,
+                "pending_tours": TourSerializer(pending_tours, many=True, context=context).data,
+                "active_tours": TourSerializer(active_tours, many=True, context=context).data,
+                "past_tours": TourSerializer(past_tours, many=True, context=context).data,
+            }
+
+            return Response(data)
+
+        except Exception as e:
+            import traceback
+            print(traceback.format_exc())
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
