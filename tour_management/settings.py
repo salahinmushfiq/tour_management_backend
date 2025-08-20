@@ -32,7 +32,8 @@ SECRET_KEY = config('SECRET_KEY')  # Load from .env
 ALLOWED_HOSTS = [
     'localhost', '127.0.0.1',
     '.onrender.com',              # Allow all subdomains on Render
-    'tour-mate-vite.netlify.app' # Frontend in production
+    'tour-mate-vite.netlify.app' # Frontend in production,
+    'https://tour-management-backend-kn59.onrender.com'
 ]
 
 # ---------------------------
