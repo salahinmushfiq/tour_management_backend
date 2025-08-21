@@ -359,6 +359,12 @@ class StandardResultsSetPagination(PageNumberPagination):
     max_page_size = 50
 
 
+class SmallPagination(PageNumberPagination):
+    page_size = 5
+    page_size_query_param = "page_size"
+    max_page_size = 10
+
+
 class TourViewSet(viewsets.ModelViewSet):
     """
     TourViewSet provides CRUD operations for Tour model with role-based access control:
@@ -870,89 +876,106 @@ class TourParticipantViewSet(viewsets.ModelViewSet):
 class TouristToursView(APIView):
     permission_classes = [IsAuthenticated]
     authentication_classes = [JWTAuthentication]
+    pagination_class = SmallPagination
+
+    def get_queryset_for_status(self, tour_ids, now_date):
+        """
+        Helper to return Tour queryset with safe prefetches
+        """
+        return (
+            Tour.objects.filter(id__in=tour_ids)
+            .select_related("organizer")
+            .prefetch_related(
+                "offers",
+                "tour_participants__user",
+                "guide_assignments__guide__guide",
+            )
+        )
+
+    def paginate_queryset(self, queryset, request):
+        paginator = self.pagination_class()
+        return paginator.paginate_queryset(queryset, request), paginator
 
     def get(self, request):
-        user = getattr(request, "user", None)
-
-        # 🔒 Safety check
+        user = request.user
         if not user or not user.is_authenticated:
             return Response(
                 {"detail": "Authentication credentials were not provided."},
-                status=status.HTTP_401_UNAUTHORIZED,
+                status=401,
             )
 
         now_date = now()
 
         try:
-            # Fetch all participations with related tours in one go
+            # Fetch all participations for user
             user_participations = (
                 TourParticipant.objects.filter(user=user)
                 .select_related("tour")
-                .only("id", "status", "tour_id", "tour__id", "tour__organizer_id")
+                .only("id", "status", "tour_id", "tour__organizer_id")
             )
 
-            # Convert queryset to dict by status for easy lookup
             participations_by_status = {}
+            joined_tour_ids = []
             for part in user_participations:
                 participations_by_status.setdefault(part.status, []).append(part.tour_id)
+                joined_tour_ids.append(part.tour_id)
 
-            joined_tour_ids = [p.tour_id for p in user_participations]
-
-            # Available tours (not joined + future)
-            available_tours = (
+            # ---------------------
+            # Available tours (not joined, future)
+            # ---------------------
+            available_qs = (
                 Tour.objects.exclude(id__in=joined_tour_ids)
                 .filter(start_date__gte=now_date)
                 .select_related("organizer")
+                .prefetch_related(
+                    "offers",
+                    "tour_participants__user",
+                    "guide_assignments__guide__guide",
+                )
             )
+            available, paginator_avail = self.paginate_queryset(available_qs, request)
 
+            # ---------------------
             # Pending tours
-            pending_tours = (
-                Tour.objects.filter(id__in=participations_by_status.get("pending", []))
-                .select_related("organizer")
-            )
+            # ---------------------
+            pending_ids = participations_by_status.get("pending", [])
+            pending_qs = self.get_queryset_for_status(pending_ids, now_date)
+            pending, paginator_pending = self.paginate_queryset(pending_qs, request)
 
-            # Active tours (approved + ongoing)
-            active_tours = (
-                Tour.objects.filter(
-                    id__in=participations_by_status.get("approved", []),
-                    end_date__gte=now_date,
-                )
-                .select_related("organizer")
+            # ---------------------
+            # Active tours
+            # ---------------------
+            active_ids = participations_by_status.get("approved", [])
+            active_qs = (
+                self.get_queryset_for_status(active_ids, now_date)
+                .filter(end_date__gte=now_date)
             )
+            active, paginator_active = self.paginate_queryset(active_qs, request)
 
-            # Past tours (approved or completed but finished)
-            past_tours = (
-                Tour.objects.filter(
-                    id__in=participations_by_status.get("approved", [])
-                    + participations_by_status.get("completed", []),
-                    end_date__lt=now_date,
-                )
-                .select_related("organizer")
+            # ---------------------
+            # Past tours
+            # ---------------------
+            past_ids = active_ids + participations_by_status.get("completed", [])
+            past_qs = (
+                self.get_queryset_for_status(past_ids, now_date)
+                .filter(end_date__lt=now_date)
             )
+            past, paginator_past = self.paginate_queryset(past_qs, request)
 
-            # ✅ Serialize once
             context = {"user": user}
             data = {
-                "available_tours": TourSerializer(
-                    available_tours, many=True, context=context
-                ).data,
-                "pending_tours": TourSerializer(
-                    pending_tours, many=True, context=context
-                ).data,
-                "active_tours": TourSerializer(
-                    active_tours, many=True, context=context
-                ).data,
-                "past_tours": TourSerializer(
-                    past_tours, many=True, context=context
-                ).data,
+                "available_tours": TourSerializer(available, many=True, context=context).data,
+                "pending_tours": TourSerializer(pending, many=True, context=context).data,
+                "active_tours": TourSerializer(active, many=True, context=context).data,
+                "past_tours": TourSerializer(past, many=True, context=context).data,
             }
 
-            return Response(data, status=status.HTTP_200_OK)
+            return Response(data, status=200)
 
         except Exception as e:
             import traceback
             print("❌ TouristToursView crashed:", traceback.format_exc())
             return Response(
                 {"error": "Unexpected error: " + str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=500,
             )
