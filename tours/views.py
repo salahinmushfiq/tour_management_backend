@@ -874,7 +874,7 @@ class TouristToursView(APIView):
     def get(self, request):
         user = getattr(request, "user", None)
 
-        # 🔒 Safety check: user must exist and be authenticated
+        # 🔒 Safety check
         if not user or not user.is_authenticated:
             return Response(
                 {"detail": "Authentication credentials were not provided."},
@@ -884,52 +884,53 @@ class TouristToursView(APIView):
         now_date = now()
 
         try:
-            # Prefetch participations with tour relation
+            # Fetch all participations with related tours in one go
             user_participations = (
                 TourParticipant.objects.filter(user=user)
                 .select_related("tour")
-                .only("id", "status", "tour_id")  # efficiency: load only what we need
+                .only("id", "status", "tour_id", "tour__id", "tour__organizer_id")
             )
 
-            joined_tour_ids = list(user_participations.values_list("tour_id", flat=True))
+            # Convert queryset to dict by status for easy lookup
+            participations_by_status = {}
+            for part in user_participations:
+                participations_by_status.setdefault(part.status, []).append(part.tour_id)
 
-            # Available tours: not joined, start date in future
+            joined_tour_ids = [p.tour_id for p in user_participations]
+
+            # Available tours (not joined + future)
             available_tours = (
                 Tour.objects.exclude(id__in=joined_tour_ids)
                 .filter(start_date__gte=now_date)
                 .select_related("organizer")
             )
 
-            # Grouping queries by status
+            # Pending tours
             pending_tours = (
-                Tour.objects.filter(
-                    tour_participants__in=user_participations.filter(status="pending")
-                )
-                .distinct()
+                Tour.objects.filter(id__in=participations_by_status.get("pending", []))
                 .select_related("organizer")
             )
 
+            # Active tours (approved + ongoing)
             active_tours = (
                 Tour.objects.filter(
-                    tour_participants__in=user_participations.filter(status="approved"),
+                    id__in=participations_by_status.get("approved", []),
                     end_date__gte=now_date,
                 )
-                .distinct()
                 .select_related("organizer")
             )
 
+            # Past tours (approved or completed but finished)
             past_tours = (
                 Tour.objects.filter(
-                    tour_participants__in=user_participations.filter(
-                        status__in=["completed", "approved"]
-                    ),
+                    id__in=participations_by_status.get("approved", [])
+                    + participations_by_status.get("completed", []),
                     end_date__lt=now_date,
                 )
-                .distinct()
                 .select_related("organizer")
             )
 
-            # ✅ Serialize safely
+            # ✅ Serialize once
             context = {"user": user}
             data = {
                 "available_tours": TourSerializer(
@@ -953,5 +954,5 @@ class TouristToursView(APIView):
             print("❌ TouristToursView crashed:", traceback.format_exc())
             return Response(
                 {"error": "Unexpected error: " + str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
