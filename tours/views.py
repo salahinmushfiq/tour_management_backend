@@ -867,68 +867,91 @@ class TourParticipantViewSet(viewsets.ModelViewSet):
         return Response({"detail": "Participant rejected."}, status=status.HTTP_200_OK)
 
 
-from django.utils.timezone import now
-from django.db.models import Q
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework import status
-
-from .models import Tour, TourParticipant
-from .serializers import TourSerializer
-
-
 class TouristToursView(APIView):
     permission_classes = [IsAuthenticated]
     authentication_classes = [JWTAuthentication]
 
     def get(self, request):
-        user = request.user
+        user = getattr(request, "user", None)
+
+        # 🔒 Safety check: user must exist and be authenticated
+        if not user or not user.is_authenticated:
+            return Response(
+                {"detail": "Authentication credentials were not provided."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
         now_date = now()
 
         try:
-            # Prefetch participant objects for this user
-            user_participations = TourParticipant.objects.filter(user=user).select_related('tour')
+            # Prefetch participations with tour relation
+            user_participations = (
+                TourParticipant.objects.filter(user=user)
+                .select_related("tour")
+                .only("id", "status", "tour_id")  # efficiency: load only what we need
+            )
 
-            joined_tour_ids = user_participations.values_list('tour_id', flat=True)
+            joined_tour_ids = list(user_participations.values_list("tour_id", flat=True))
 
-            # Available tours: not joined yet, start date in future
+            # Available tours: not joined, start date in future
             available_tours = (
                 Tour.objects.exclude(id__in=joined_tour_ids)
                 .filter(start_date__gte=now_date)
-                .select_related('organizer')
+                .select_related("organizer")
             )
 
-            # Tours grouped by status
-            # Pending tours
-            pending_tours = Tour.objects.filter(
-                tour_participants__in=user_participations.filter(status="pending")
-            ).distinct().select_related('organizer')
+            # Grouping queries by status
+            pending_tours = (
+                Tour.objects.filter(
+                    tour_participants__in=user_participations.filter(status="pending")
+                )
+                .distinct()
+                .select_related("organizer")
+            )
 
-            # Active tours: approved and not ended
-            active_tours = Tour.objects.filter(
-                tour_participants__in=user_participations.filter(status="approved"),
-                end_date__gte=now_date
-            ).distinct().select_related('organizer')
+            active_tours = (
+                Tour.objects.filter(
+                    tour_participants__in=user_participations.filter(status="approved"),
+                    end_date__gte=now_date,
+                )
+                .distinct()
+                .select_related("organizer")
+            )
 
-            # Past tours: approved/completed and ended
-            past_tours = Tour.objects.filter(
-                tour_participants__in=user_participations.filter(status__in=["completed", "approved"]),
-                end_date__lt=now_date
-            ).distinct().select_related('organizer')
+            past_tours = (
+                Tour.objects.filter(
+                    tour_participants__in=user_participations.filter(
+                        status__in=["completed", "approved"]
+                    ),
+                    end_date__lt=now_date,
+                )
+                .distinct()
+                .select_related("organizer")
+            )
 
-            # Serialize all with context
+            # ✅ Serialize safely
             context = {"user": user}
             data = {
-                "available_tours": TourSerializer(available_tours, many=True, context=context).data,
-                "pending_tours": TourSerializer(pending_tours, many=True, context=context).data,
-                "active_tours": TourSerializer(active_tours, many=True, context=context).data,
-                "past_tours": TourSerializer(past_tours, many=True, context=context).data,
+                "available_tours": TourSerializer(
+                    available_tours, many=True, context=context
+                ).data,
+                "pending_tours": TourSerializer(
+                    pending_tours, many=True, context=context
+                ).data,
+                "active_tours": TourSerializer(
+                    active_tours, many=True, context=context
+                ).data,
+                "past_tours": TourSerializer(
+                    past_tours, many=True, context=context
+                ).data,
             }
 
-            return Response(data)
+            return Response(data, status=status.HTTP_200_OK)
 
         except Exception as e:
             import traceback
-            print(traceback.format_exc())
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            print("❌ TouristToursView crashed:", traceback.format_exc())
+            return Response(
+                {"error": "Unexpected error: " + str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
