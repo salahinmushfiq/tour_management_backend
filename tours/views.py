@@ -986,17 +986,12 @@ class TouristToursView(APIView):
 @permission_classes([IsAuthenticated])
 @authentication_classes([JWTAuthentication])
 def dashboard_stats(request):
-    # Use cache
     stats = cache.get('admin_dashboard_stats')
     if not stats:
-        # Total users
         total_users = User.objects.count()
-        # Active users: last login within 30 days
-        active_users = User.objects.filter(last_login__gte=timezone.now() - timezone.timedelta(days=30)).count()
-        # Currently logged-in users (from sessions)
+        active_users = User.objects.filter(last_login__gte=timezone.now()-timezone.timedelta(days=30)).count()
         sessions = Session.objects.filter(expire_date__gte=timezone.now())
-        session_user_ids = [s.get_decoded().get('_auth_user_id') for s in sessions if
-                            s.get_decoded().get('_auth_user_id')]
+        session_user_ids = [s.get_decoded().get('_auth_user_id') for s in sessions if s.get_decoded().get('_auth_user_id')]
         currently_logged_in = len(set(session_user_ids))
 
         stats = {
@@ -1004,14 +999,17 @@ def dashboard_stats(request):
             "active_users": active_users,
             "currently_logged_in": currently_logged_in,
             "total_tours": Tour.objects.count(),
-            # "total_bookings": Booking.objects.count(),
             "total_guides": Guide.objects.count(),
         }
-        cache.set('admin_dashboard_stats', stats, 60 * 5)  # cache 5 min
+        cache.set('admin_dashboard_stats', stats, 60*5)
 
-    # Recent activity
-    recent_users = list(User.objects.order_by('-date_joined').values('id', 'username', 'date_joined')[:5])
-    recent_tours = list(Tour.objects.order_by('-created_at').values('id', 'title', 'created_at')[:5])
+    recent_users = list(
+        User.objects.order_by('-last_login')  # use last_login instead of date_joined
+            .values('id', 'username', 'last_login')[:5]
+    )
+    recent_tours = list(
+        Tour.objects.order_by('-created_at').values('id', 'title', 'created_at')[:5]
+    )
 
     return Response({
         "stats": stats,
