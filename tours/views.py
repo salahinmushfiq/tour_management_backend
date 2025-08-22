@@ -1009,6 +1009,8 @@ def dashboard_stats(request):
             "currently_logged_in": currently_logged_in,
             "total_tours": Tour.objects.count(),
             "total_guides": Guide.objects.count(),
+            "total_bookings": TourParticipant.objects.filter(status__iexact="approved").count(),
+            "pending_requests": TourParticipant.objects.filter(status__iexact="pending").count()
         }
         cache.set('admin_dashboard_stats', stats, 60 * 5)  # cache 5 min
 
