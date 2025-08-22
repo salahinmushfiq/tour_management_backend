@@ -982,50 +982,89 @@ class TouristToursView(APIView):
             )
 
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-@authentication_classes([JWTAuthentication])
-def dashboard_stats(request):
-    # Use cache to reduce DB load
-    stats = cache.get('admin_dashboard_stats')
-    if not stats:
-        # Total users
-        total_users = User.objects.count()
-        # Active users: last login within 30 days
-        active_users = User.objects.filter(
-            last_login__gte=timezone.now() - timezone.timedelta(days=30)
-        ).count()
-        # Currently logged-in users (from sessions)
-        sessions = Session.objects.filter(expire_date__gte=timezone.now())
-        session_user_ids = [
-            s.get_decoded().get('_auth_user_id') for s in sessions
-            if s.get_decoded().get('_auth_user_id')
-        ]
-        currently_logged_in = len(set(session_user_ids))
+class DashboardStatsView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsOrganizerOrAdmin]
 
-        stats = {
+    def get(self, request):
+        user = request.user
+        cache_key = f'dashboard_stats_{user.id}'
+        stats = cache.get(cache_key)
+
+        if not stats:
+            stats = self.compute_stats(user)
+            cache.set(cache_key, stats, 60*5)  # cache for 5 minutes
+
+        recent_users = self.get_recent_users(user)
+        recent_tours = self.get_recent_tours(user)
+
+        return Response({
+            "stats": stats,
+            "recent_users": recent_users,
+            "recent_tours": recent_tours
+        })
+
+    def compute_stats(self, user):
+        if user.role == 'admin':
+            total_users = User.objects.count()
+            active_users = User.objects.filter(
+                last_login__gte=timezone.now()-timezone.timedelta(days=30)
+            ).count()
+            sessions = Session.objects.filter(expire_date__gte=timezone.now())
+            session_user_ids = [
+                s.get_decoded().get('_auth_user_id')
+                for s in sessions
+                if s.get_decoded().get('_auth_user_id')
+            ]
+            currently_logged_in = len(set(session_user_ids))
+
+            total_tours = Tour.objects.count()
+            approved_bookings = TourParticipant.objects.filter(status__iexact="approved").count()
+            pending_requests = TourParticipant.objects.filter(status__iexact="pending").count()
+            total_guides = Guide.objects.count()
+        elif user.role == 'organizer':
+            total_users = active_users = currently_logged_in = None
+            total_tours = Tour.objects.filter(organizer=user).count()
+            approved_bookings = TourParticipant.objects.filter(
+                tour__organizer=user, status__iexact="approved"
+            ).count()
+            pending_requests = TourParticipant.objects.filter(
+                tour__organizer=user, status__iexact="pending"
+            ).count()
+            total_guides = None
+        else:
+            # just in case
+            total_users = active_users = currently_logged_in = total_tours = 0
+            approved_bookings = pending_requests = total_guides = 0
+
+        return {
             "total_users": total_users,
             "active_users": active_users,
             "currently_logged_in": currently_logged_in,
-            "total_tours": Tour.objects.count(),
-            "total_guides": Guide.objects.count(),
-            "total_bookings": TourParticipant.objects.filter(status__iexact="approved").count(),
-            "pending_requests": TourParticipant.objects.filter(status__iexact="pending").count()
+            "total_tours": total_tours,
+            "approved_bookings": approved_bookings,
+            "pending_requests": pending_requests,
+            "total_guides": total_guides,
         }
-        cache.set('admin_dashboard_stats', stats, 60 * 5)  # cache 5 min
 
-    # Recent activity
-    recent_users = list(
-        User.objects.order_by('-id')  # fallback for creation order
-        .values('id', 'username', 'last_login')[:5]
-    )
-    recent_tours = list(
-        Tour.objects.order_by('-start_date')
-        .values('id', 'title', 'start_date')[:5]
-    )
+    def get_recent_users(self, user):
+        if user.role == 'admin':
+            return list(
+                User.objects.order_by('-id')
+                .values('id', 'username', 'last_login')[:5]
+            )
+        return []
 
-    return Response({
-        "stats": stats,
-        "recent_users": recent_users,
-        "recent_tours": recent_tours
-    })
+    def get_recent_tours(self, user):
+        if user.role == 'admin':
+            return list(
+                Tour.objects.order_by('-start_date')
+                .values('id', 'title', 'start_date')[:5]
+            )
+        elif user.role == 'organizer':
+            return list(
+                Tour.objects.filter(organizer=user)
+                .order_by('-start_date')
+                .values('id', 'title', 'start_date')[:5]
+            )
+        return []
