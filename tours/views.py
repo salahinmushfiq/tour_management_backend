@@ -1015,7 +1015,7 @@ def dashboard_stats(request):
     # Recent activity
     recent_users = list(
         User.objects.order_by('-id')  # fallback for creation order
-        .values('id', 'username', 'date_joined')[:5]
+        .values('id', 'username', 'last_login')[:5]
     )
     recent_tours = list(
         Tour.objects.order_by('-start_date')
