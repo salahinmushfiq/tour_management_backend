@@ -215,7 +215,7 @@ from rest_framework import viewsets, mixins, permissions, status
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes, authentication_classes
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404
@@ -983,7 +983,8 @@ class TouristToursView(APIView):
 
 
 @api_view(['GET'])
-@permission_classes([IsAdminUser])
+@permission_classes([IsAuthenticated])
+@authentication_classes([JWTAuthentication])
 def dashboard_stats(request):
     # Use cache
     stats = cache.get('admin_dashboard_stats')
