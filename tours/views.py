@@ -215,7 +215,7 @@ from rest_framework import viewsets, mixins, permissions, status
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404
@@ -230,7 +230,8 @@ from .permissions import IsAdminOrOrganizerOwnerOrReadOnly, IsOrganizerOrAdmin, 
 from .serializers import GuideSerializer, TourSerializer, OfferSerializer, ParticipantSerializer, \
     TourGuideAssignmentSerializer, MyTourSerializer
 from django.utils.timezone import now
-from django.conf import settings
+from django.core.cache import cache
+from django.contrib.sessions.models import Session
 
 
 # -------------------------
@@ -979,3 +980,40 @@ class TouristToursView(APIView):
                 {"error": "Unexpected error: " + str(e)},
                 status=500,
             )
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def dashboard_stats(request):
+    # Use cache
+    stats = cache.get('admin_dashboard_stats')
+    if not stats:
+        # Total users
+        total_users = User.objects.count()
+        # Active users: last login within 30 days
+        active_users = User.objects.filter(last_login__gte=timezone.now() - timezone.timedelta(days=30)).count()
+        # Currently logged-in users (from sessions)
+        sessions = Session.objects.filter(expire_date__gte=timezone.now())
+        session_user_ids = [s.get_decoded().get('_auth_user_id') for s in sessions if
+                            s.get_decoded().get('_auth_user_id')]
+        currently_logged_in = len(set(session_user_ids))
+
+        stats = {
+            "total_users": total_users,
+            "active_users": active_users,
+            "currently_logged_in": currently_logged_in,
+            "total_tours": Tour.objects.count(),
+            # "total_bookings": Booking.objects.count(),
+            "total_guides": Guide.objects.count(),
+        }
+        cache.set('admin_dashboard_stats', stats, 60 * 5)  # cache 5 min
+
+    # Recent activity
+    recent_users = list(User.objects.order_by('-date_joined').values('id', 'username', 'date_joined')[:5])
+    recent_tours = list(Tour.objects.order_by('-created_at').values('id', 'title', 'created_at')[:5])
+
+    return Response({
+        "stats": stats,
+        "recent_users": recent_users,
+        "recent_tours": recent_tours
+    })
