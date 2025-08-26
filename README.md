@@ -36,9 +36,9 @@ python manage.py runserver
 - Google Auth (`social-auth-app-django`)
 
 
-# Authentication Module – TourMate Project
-
-## Overview
+# TourMate Project
+## Authentication
+### Overview
 The authentication module powers secure login, registration, and session management for the TourMate platform.
 
 It supports:
@@ -212,9 +212,114 @@ graph TD
 
 ---
 
-## Next Steps
-- Expand Events Module documentation  
-- Add Organizer Dashboard module  
-- Add Tourist Dashboard module  
-- Combine into full system doc with ERD + UML + API index
+### 3.2 Key Component Interactions
+- **EventSection → EventFilter**: Filters tours by category & location.
+- **TourCard → EventModal**: Opens detailed view of a tour.
+- **ProfileDropdown**: Triggers logout and profile navigation.
+- **ProtectedRoute**: Ensures role-based access to dashboard routes.
+- **AuthContext**: Provides login, logout, token handling, and role-based redirects globally.
+
+### 3.3 Frontend Data Flow
+- Authenticated user → tokens stored in `localStorage`.
+- Axios interceptors inject JWTs and auto-refresh.
+- Components consume `AuthContext` for session state.
+- Filters update state in `EventSection`, propagating down to `TourCard` rendering.
+
+---
+
+## 4. Backend (Django + DRF + Djoser)
+
+### 4.1 Models
+- **User** (custom): email as primary field, roles = [tourist, organizer, guide, admin].
+- **Tour/Event**: Title, description, category, location, organizer.
+- **Booking**: Links tourist → tour.
+- **GuideAssignment**: Links guide → tour.
+- **Request**: Approval/denial system for guide/participant applications.
+
+### 4.2 API Structure
+- **Auth**: JWT login, registration, social login, password reset.
+- **Tour APIs**:
+  - List, create, update, delete tours (organizer only).
+  - Filter tours by category/location.
+- **Guide Assignment APIs**:
+  - Organizers assign/remove guides.
+- **Request APIs**:
+  - Guides/participants apply.
+  - Organizers approve/deny.
+- **Dashboard Stats APIs**:
+  - Organizer: bookings, participants, guides.
+  - Admin: total users, active tours, revenue (future).
+
+### 4.3 Permissions
+- `IsAuthenticated`
+- `IsOrganizerOrAdmin`
+- `IsTourist`
+- `IsGuide`
+- `Custom permission`: only tour organizer can approve/deny related requests.
+
+---
+
+## 5. Authentication & Session Management
+- **Auth Flow**:
+  - On login, tokens saved via `tokenService`.
+  - Axios injects access token, refreshes on expiry.
+  - `useSessionTimer` tracks expiry → shows session modal.
+  - Social login exchanges provider token for JWT.
+- **Session Security**:
+  - Auto-logout on refresh expiry.
+  - Modal prompts user before expiry.
+  - Rate limiting for login attempts.
+
+---
+
+## 6. Request Approval / Denial Flow
+- **Participants**:
+  1. Tourist requests to join a tour.
+  2. Organizer sees pending request.
+  3. Organizer approves → Booking created.
+  4. Organizer denies → Tourist notified.
+- **Guides**:
+  1. Guide requests to be assigned.
+  2. Organizer reviews request.
+  3. Approval → GuideAssignment created.
+  4. Denial → Guide notified.
+
+---
+
+## 7. UML-Style Component Diagrams
+
+### 7.1 Frontend (High-level)
+```
+[AuthContext] <--> [axiosInstance]
+   | provides
+   v
+[ProtectedRoute] ---> [Role-based Dashboards]
+                          | contains
+                          +--> [OrganizerDashboard]
+                          |       +--> [ManageTours]
+                          |       +--> [ManageBookings]
+                          |       +--> [ManageGuides]
+                          +--> [TouristDashboard]
+                          +--> [AdminDashboard]
+
+[EventSection] --> [EventFilter]
+[EventSection] --> [TourCard] --> [EventModal]
+[ProfileDropdown] --> [AuthContext.logout()]
+```
+
+### 7.2 Backend (Simplified)
+```
+[User]
+  |-- role (tourist/organizer/guide/admin)
+  |
+  +--> [Tour/Event] --(organizer)-->
+  |         |
+  |         +--> [Booking] <--(tourist)
+  |         +--> [GuideAssignment] <--(guide)
+  |
+  +--> [Request] -- approval/denial --> [Organizer]
+```
+
+---
+
 
