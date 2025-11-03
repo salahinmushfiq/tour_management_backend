@@ -1,15 +1,21 @@
 # accounts/views.py
+from django.core.mail import send_mail
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
 from rest_framework import generics, permissions, status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.response import Response
+from django.utils import timezone
 
 from tours.models import Guide
 from .models import User
 from .permissions import IsAdmin
+from .tasks import send_welcome_email
 from .serializers import UserRegistrationSerializer, UserProfileSerializer, AdminUpdateUserSerializer, UserSerializer, \
     CustomUserSerializer
 from django.contrib.auth import get_user_model
@@ -87,12 +93,20 @@ class DebugHeadersView(APIView):
         return Response({"headers": dict(request.headers)})
 
 
+class CustomUserPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = "page_size"
+    max_page_size = 50
+
+
 class AdminUserListView(generics.ListAPIView):
     authentication_classes = [JWTAuthentication]
-    queryset = User.objects.all()
+    queryset = User.objects.all().order_by('-id')
     serializer_class = CustomUserSerializer
     permission_classes = [IsAuthenticated, IsAdmin]
+    pagination_class = CustomUserPagination
 
+    @method_decorator(cache_page(60 * 5))  # 5 minutes
     def get_object(self):
         user = self.request.user
         print("👤 Profile View Access:", user, "Is Auth:", user.is_authenticated)  # ADD LOG
@@ -148,8 +162,11 @@ class SocialTokenExchangeView(APIView):
                     user.role = 'tourist'
                     user.login_method = 'google'
                     user.set_unusable_password()
+                    user.last_login = timezone.now()
+                    send_welcome_email.delay(user.email)
                 else:
                     user.login_method = 'google'
+                    user.last_login = timezone.now()
                 user.save()
 
                 refresh = RefreshToken.for_user(user)
@@ -189,6 +206,7 @@ class SocialTokenExchangeView(APIView):
                     user.role = 'tourist'
                     user.login_method = 'facebook'
                     user.set_unusable_password()
+                    send_welcome_email.delay(user.email)
                 else:
                     user.login_method = 'facebook'
                 user.save()

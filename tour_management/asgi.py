@@ -1,16 +1,11 @@
-"""
-ASGI config for tour_management project.
-
-It exposes the ASGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/5.2/howto/deployment/asgi/
-"""
-
 import os
+from decouple import config
+from django.core.wsgi import get_wsgi_application
 
-from django.core.asgi import get_asgi_application
+env = config("DJANGO_ENV", default="prod")
+os.environ.setdefault(
+    "DJANGO_SETTINGS_MODULE",
+    f"tour_management.settings.{env}"
+)
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'tour_management.settings')
-
-application = get_asgi_application()
+application = get_wsgi_application()

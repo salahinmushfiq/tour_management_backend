@@ -34,6 +34,7 @@ python manage.py runserver
 - JWT (`djoser`, `simplejwt`)
 - Cloudinary (media)
 - Google Auth (`social-auth-app-django`)
+- Celery + Redis (background tasks / email sending)
 
 
 # TourMate Project
@@ -48,6 +49,7 @@ It supports:
 - Role-based access control (Tourist, Organizer, Admin)  
 - Password reset via email  
 - Session expiration warnings with auto-refresh
+- Email backend: console in production, real SMTP in local dev
 
 This module protects APIs and personalizes user experiences across dashboards.
 
@@ -212,14 +214,14 @@ graph TD
 
 ---
 
-### 3.2 Key Component Interactions
+### Key Component Interactions
 - **EventSection → EventFilter**: Filters tours by category & location.
 - **TourCard → EventModal**: Opens detailed view of a tour.
 - **ProfileDropdown**: Triggers logout and profile navigation.
 - **ProtectedRoute**: Ensures role-based access to dashboard routes.
 - **AuthContext**: Provides login, logout, token handling, and role-based redirects globally.
 
-### 3.3 Frontend Data Flow
+### Frontend Data Flow
 - Authenticated user → tokens stored in `localStorage`.
 - Axios interceptors inject JWTs and auto-refresh.
 - Components consume `AuthContext` for session state.
@@ -289,35 +291,67 @@ graph TD
 ## 7. UML-Style Component Diagrams
 
 ### 7.1 Frontend (High-level)
-```
-[AuthContext] <--> [axiosInstance]
-   | provides
-   v
-[ProtectedRoute] ---> [Role-based Dashboards]
-                          | contains
-                          +--> [OrganizerDashboard]
-                          |       +--> [ManageTours]
-                          |       +--> [ManageBookings]
-                          |       +--> [ManageGuides]
-                          +--> [TouristDashboard]
-                          +--> [AdminDashboard]
+```mermaid
+graph TD
 
-[EventSection] --> [EventFilter]
-[EventSection] --> [TourCard] --> [EventModal]
-[ProfileDropdown] --> [AuthContext.logout()]
+%% User roles
+User[User] --> Role[Role: tourist / organizer / guide / admin]
+
+%% Tour/Event relationships
+Role --> Tour[Tour / Event]
+
+%% Organizer creates/manages events
+Organizer[Organizer] -->|creates / manages| Tour
+
+%% Bookings by tourists
+Tourist[Tourist] -->|makes| Booking[Booking]
+Booking --> Tour
+
+%% Guides assignments
+Guide[Guide] -->|assigned| GuideAssignment[Guide Assignment]
+GuideAssignment --> Tour
+
+%% Requests handled by organizer
+Request[Request] --> Organizer
+Organizer -->|approves / denies| Request
 ```
 
 ### 7.2 Backend (Simplified)
-```
-[User]
-  |-- role (tourist/organizer/guide/admin)
-  |
-  +--> [Tour/Event] --(organizer)-->
-  |         |
-  |         +--> [Booking] <--(tourist)
-  |         +--> [GuideAssignment] <--(guide)
-  |
-  +--> [Request] -- approval/denial --> [Organizer]
+```mermaid
+erDiagram
+    USER {
+        string role "tourist | organizer | guide | admin"
+    }
+
+    TOUR {
+        string name
+        datetime date
+    }
+
+    BOOKING {
+        int id
+        datetime bookingDate
+    }
+
+    GUIDE_ASSIGNMENT {
+        int id
+    }
+
+    REQUEST {
+        int id
+        string status "approved | denied"
+    }
+
+    %% Relationships
+    USER ||--o{ TOUR : "organizes"
+    USER ||--o{ BOOKING : "makes"
+    USER ||--o{ GUIDE_ASSIGNMENT : "assigned"
+    USER ||--o{ REQUEST : "submits"
+
+    TOUR ||--o{ BOOKING : "has"
+    TOUR ||--o{ GUIDE_ASSIGNMENT : "requires"
+    REQUEST }o--|| USER : "approved/denied by organizer"
+
 ```
 
 ---

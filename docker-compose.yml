@@ -1,0 +1,53 @@
+# docker-compose.yml
+version: "3.9"
+
+services:
+  web:
+    build: .
+    container_name: tourmate_backend
+    command: gunicorn tour_management.wsgi:application --bind 0.0.0.0:8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+#      - db
+      - redis
+
+#  db:
+#    image: postgres:16
+#    container_name: tourmate_postgres
+#    environment:
+#      POSTGRES_DB: ${DB_NAME}
+#      POSTGRES_USER: ${DB_USER}
+#      POSTGRES_PASSWORD: ${DB_PASSWORD}
+#    ports:
+#      - "5432:5432"
+#    volumes:
+#      - postgres_data:/var/lib/postgresql/data
+
+  celery:
+    build: .
+    container_name: tourmate_celery
+    command: celery -A tour_management worker --loglevel=info --pool=solo
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - web
+
+  redis:
+    image: redis:7
+    container_name: tourmate_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:
+  postgres_data:

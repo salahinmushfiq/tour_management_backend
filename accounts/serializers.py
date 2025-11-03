@@ -1,10 +1,12 @@
 # accounts/serializers.py
+from django.core.mail import send_mail
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from tours.models import Tour
 from tours.serializers import GuideSerializer, TourSerializer
 from .models import User
+from .tasks import send_welcome_email
 from django.contrib.auth.password_validation import validate_password
 from djoser.serializers import UserCreateSerializer as BaseUserCreateSerializer
 from djoser.serializers import UserSerializer
@@ -25,7 +27,20 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         validated_data.pop('password2')
-        return User.objects.create_user(**validated_data)
+        user = User.objects.create_user(**validated_data)
+
+        # ✅ Trigger Celery task asynchronously
+        send_welcome_email(user.email)
+
+        # send_mail(
+        #     subject="Welcome to TourMate!",
+        #     message="Thank you for joining TourMate! We’re excited to have you onboard.",
+        #     from_email='tourmate14@gmail.com',
+        #     recipient_list=['hrakib244@gmail.com', user.email],  # <- fixed
+        #     fail_silently=False,  # <- show errors if any
+        # )
+
+        return user
 
 
 # ------------------------------
@@ -100,7 +115,7 @@ class CustomUserSerializer(UserSerializer):
 
     class Meta(UserSerializer.Meta):
         model = User
-        fields = ('id', 'email', 'role','user_name')
+        fields = ('id', 'email', 'role', 'user_name', 'login_method')
 
     def get_user_name(self, obj):
         return obj.username or obj.email.split('@')[0]
