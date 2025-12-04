@@ -34,6 +34,7 @@ INSTALLED_APPS = [
 
     # Local apps
     'accounts', 'tours', 'media_gallery', 'costs', 'locations',
+    'bookings', 'payments'
 ]
 
 AUTH_USER_MODEL = "accounts.User"
@@ -94,6 +95,7 @@ if USE_SUPABASE:
             "PASSWORD": config("SUPABASE_DB_PASSWORD"),
             "HOST": config("SUPABASE_DB_HOST"),
             "PORT": config("SUPABASE_DB_PORT", default=5432, cast=int),
+            'CONN_MAX_AGE': 10,  # short-lived connections
         }
     }
 else:
@@ -156,6 +158,11 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-
 CELERY_BROKER_URL = "redis://redis:6379/0"
 CELERY_RESULT_BACKEND = "redis://redis:6379/0"
+
+SSLCOMMERZ_STORE_ID = config("SSLCOMMERZ_STORE_ID")
+SSLCOMMERZ_STORE_PASSWORD = config("SSLCOMMERZ_STORE_PASSWORD")
+SSL_SUCCESS_URL = config("SSL_SUCCESS_URL")
+SSL_FAIL_URL = config("SSL_FAIL_URL")
+SSL_CANCEL_URL = config("SSL_CANCEL_URL")

@@ -224,11 +224,11 @@ from django.utils import timezone
 from rest_framework.pagination import PageNumberPagination
 from django.db.models import Q
 from rest_framework import serializers
-from .models import Guide, Tour, Offer, TourParticipant, TourGuideAssignment
+from .models import Guide, Tour, Offer, TourParticipant, TourGuideAssignment, Booking
 from accounts.models import User
 from .permissions import IsAdminOrOrganizerOwnerOrReadOnly, IsOrganizerOrAdmin, IsGuideSelf
 from .serializers import GuideSerializer, TourSerializer, OfferSerializer, ParticipantSerializer, \
-    TourGuideAssignmentSerializer, MyTourSerializer
+    TourGuideAssignmentSerializer, MyTourSerializer, BookingSerializer
 from django.utils.timezone import now
 from django.core.cache import cache
 from django.contrib.sessions.models import Session
@@ -874,6 +874,95 @@ class TourParticipantViewSet(viewsets.ModelViewSet):
         return Response({"detail": "Participant rejected."}, status=status.HTTP_200_OK)
 
 
+# class BookingViewSet(viewsets.ModelViewSet):
+#     queryset = Booking.objects.all()
+#     serializer_class = BookingSerializer
+#     authentication_classes = [JWTAuthentication]
+#     permission_classes = [IsAuthenticated]
+#
+#     def get_queryset(self):
+#         qs = Booking.objects.all()
+#         user = self.request.user
+#
+#         if user.role == "admin":
+#             qs = qs
+#         elif user.role == "organizer":
+#             qs = qs.filter(participant__tour__organizer=user)
+#         else:
+#             qs = qs.filter(participant__user=user)
+#
+#         participant_id = self.request.query_params.get("participant")
+#         if participant_id:
+#             qs = qs.filter(participant__id=participant_id)
+#
+#         return qs
+#
+#     def perform_create(self, serializer):
+#         user = self.request.user
+#         if user.role != "tourist":
+#             return Response({"detail": "Only tourists can create bookings."}, status=403)
+#
+#         participant_id = self.request.data.get("participant")
+#         participant = get_object_or_404(TourParticipant, id=participant_id)
+#
+#         if participant.user != user:
+#             return Response({"detail": "You can only create bookings for yourself."}, status=403)
+#
+#         # Default: new payment is pending
+#         serializer.save(participant=participant, payment_status="pending")
+#
+#     @action(detail=True, methods=["patch"], url_path="pay")
+#     def pay(self, request, pk=None):
+#         """
+#         Tourist marks a payment (partial or full).
+#         payload: { "amount": 50.00 }
+#         """
+#         booking = self.get_object()
+#         user = request.user
+#
+#         if user.role != "tourist" or booking.participant.user != user:
+#             return Response({"detail": "Permission denied."}, status=403)
+#
+#         amount = request.data.get("amount")
+#         if not amount:
+#             return Response({"detail": "Amount required."}, status=400)
+#
+#         amount = float(amount)
+#         booking.amount_paid = (booking.amount_paid or 0) + amount
+#
+#         # Update payment status
+#         if booking.amount_paid < booking.amount:
+#             booking.payment_status = "partial"
+#         else:
+#             booking.payment_status = "paid"
+#             booking.paid_at = timezone.now()
+#
+#         booking.save()
+#         return Response(BookingSerializer(booking).data)
+#
+#     @action(detail=True, methods=["patch"], url_path="verify")
+#     def verify_payment(self, request, pk=None):
+#         """
+#         Organizer/admin verifies manual/cash payment.
+#         """
+#         booking = self.get_object()
+#         user = request.user
+#
+#         if user.role not in ["admin", "organizer"]:
+#             return Response({"detail": "Permission denied."}, status=403)
+#         if user.role == "organizer" and booking.participant.tour.organizer != user:
+#             return Response({"detail": "Permission denied."}, status=403)
+#
+#         if booking.payment_status in ["pending", "partial"]:
+#             booking.payment_status = "paid"
+#             booking.amount_paid = booking.amount
+#             booking.paid_at = timezone.now()
+#             booking.save()
+#             return Response({"detail": "Payment verified and marked as paid."})
+#         else:
+#             return Response({"detail": "Payment already completed or failed."}, status=400)
+
+
 class TouristToursView(APIView):
     permission_classes = [IsAuthenticated]
     authentication_classes = [JWTAuthentication]
@@ -996,7 +1085,7 @@ class DashboardStatsView(APIView):
             if user.role == 'admin':
                 total_users = User.objects.count()
                 active_users = User.objects.filter(
-                    last_login__gte=timezone.now()-timezone.timedelta(days=30)
+                    last_login__gte=timezone.now() - timezone.timedelta(days=30)
                 ).count()
                 sessions = Session.objects.filter(expire_date__gte=timezone.now())
                 session_user_ids = [
@@ -1033,7 +1122,7 @@ class DashboardStatsView(APIView):
                 "pending_requests": pending_requests,
                 "total_guides": total_guides,
             }
-            cache.set(cache_key, stats, 60*5)  # cache per role+user for 5 min
+            cache.set(cache_key, stats, 60 * 5)  # cache per role+user for 5 min
 
         # Recent activity
         recent_users = []

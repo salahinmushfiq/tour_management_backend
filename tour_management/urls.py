@@ -21,6 +21,8 @@ urlpatterns = [
     # path('auth/', include('djoser.urls.jwt')),
     path('social-auth/', include('social_django.urls', namespace='social')),  # <- This line!
     path("robots.txt", robots_txt),
+    path('api/', include('bookings.urls')),  # Bookings app
+    path('api/', include('payments.urls')),  # Payments app
 
 
 ]

@@ -19,6 +19,7 @@ router.register(r'participants', TourParticipantViewSet, basename='participant')
 router.register(r'tour-guide-assignments', TourGuideAssignmentViewSet, basename='tour-guide-assignment')
 router.register(r'', TourViewSet, basename='tour')
 
+
 urlpatterns = [
     path('my-tours/', TouristToursView.as_view(), name='my-tours'),  # manual APIView path
     path('dashboard-stats/', DashboardStatsView.as_view(), name='dashboard-stats'),  # <-- class-based

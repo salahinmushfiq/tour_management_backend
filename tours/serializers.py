@@ -1,8 +1,9 @@
 # tours/serializers.py
+from djoser.serializers import UserSerializer
 from rest_framework import serializers
 from .models import (
     Guide, Tour, Offer, TourParticipant,
-    TourChatMessage, TourRating, TourGuideAssignment
+    TourChatMessage, TourRating, TourGuideAssignment, Booking
 )
 
 
@@ -31,7 +32,7 @@ class ParticipantSerializer(serializers.ModelSerializer):
     class Meta:
         model = TourParticipant
         fields = ['id', 'email', 'role', 'joined_at', 'is_active', 'status']
-        read_only_fields = ['joined_at']
+        read_only_fields = ['joined_at', 'approved_at']
 
 
 class MyTourSerializer(serializers.ModelSerializer):
@@ -136,6 +137,17 @@ class TourSerializer(serializers.ModelSerializer):
             for assignment in assignments
             if hasattr(assignment.guide, "guide")  # ensure profile exists
         ]
+
+
+class BookingSerializer(serializers.ModelSerializer):
+    tour = TourSerializer(source='participant.tour', read_only=True)
+    participant_user = ParticipantSerializer(source='participant', read_only=True)  # nested user info
+
+    class Meta:
+        model = Booking
+        fields = '__all__'
+        read_only_fields = ['participant', 'created_at', 'payment_status', 'paid_at', 'tour', 'participant_user']
+
 
 # ------------------------------
 # New Serializers for Chats & Ratings

@@ -1,6 +1,7 @@
 # tours/models.py
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 User = settings.AUTH_USER_MODEL
 
@@ -77,6 +78,8 @@ class TourParticipant(models.Model):
         limit_choices_to={'role': 'tourist'}
     )
     joined_at = models.DateTimeField(auto_now_add=True)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
 
@@ -87,6 +90,39 @@ class TourParticipant(models.Model):
 
     def __str__(self):
         return f"{self.user.email} in {self.tour.title}"
+
+
+class Booking(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('partial', 'Partial'),
+        ('paid', 'Paid'),
+        ('failed', 'Failed'),
+    ]
+
+    participant = models.ForeignKey(
+        'TourParticipant',
+        on_delete=models.CASCADE,
+        related_name='bookings'
+    )
+    amount = models.DecimalField(max_digits=10, decimal_places=2)  # total amount due
+    amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    payment_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    payment_method = models.CharField(max_length=20, choices=(('cash', 'Cash'), ('online', 'Online')), default='online')
+    paid_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.participant.user.email} - {self.payment_status}"
+
+    def update_payment_status(self):
+        if self.amount_paid == 0:
+            self.payment_status = 'pending'
+        elif self.amount_paid < self.amount:
+            self.payment_status = 'partial'
+        elif self.amount_paid >= self.amount:
+            self.payment_status = 'paid'
+        self.save()
 
 
 class TourGuideAssignment(models.Model):
@@ -112,6 +148,7 @@ class TourGuideAssignment(models.Model):
     def __str__(self):
         return f"{self.tour.title} - {self.guide.email} ({self.status})"
 
+
 class Offer(models.Model):
     tour = models.ForeignKey(Tour, on_delete=models.CASCADE, related_name='offers')
     title = models.CharField(max_length=100)
@@ -122,7 +159,6 @@ class Offer(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.discount_percent}%)"
-
 
 
 class TourChatMessage(models.Model):
