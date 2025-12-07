@@ -13,7 +13,7 @@ This is the Django REST API backend for the multi-organizer tour management plat
 ## 🚀 Quickstart
 
 ```bash
-git clone https://github.com/yourusername/tour-management-backend.git
+git clone https://github.com/salahinmushfiq/tour-management-backend.git
 cd tour-management-backend
 
 # Install dependencies
