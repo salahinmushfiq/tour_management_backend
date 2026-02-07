@@ -28,7 +28,11 @@ class BookingViewSet(viewsets.ModelViewSet):
         qs = Booking.objects.all()
         user = self.request.user
 
-        # Role-based scope control
+        # Optional frontend filters
+        participant_user = self.request.query_params.get("participant_user")
+        tour = self.request.query_params.get("tour")
+        organizer = self.request.query_params.get("organizer")
+
         if user.role == "admin":
             pass  # full access
         elif user.role == "organizer":
@@ -36,15 +40,16 @@ class BookingViewSet(viewsets.ModelViewSet):
         else:  # tourist
             qs = qs.filter(participant__user=user)
 
-        # ✅ Optional filters that frontend sends
-        participant_user = self.request.query_params.get("participant_user")
-        tour = self.request.query_params.get("tour")
-
         if participant_user:
             qs = qs.filter(participant__user_id=participant_user)
 
         if tour:
             qs = qs.filter(participant__tour_id=tour)
+
+        if organizer:
+            qs = qs.filter(participant__tour__organizer_id=organizer)
+
+        return qs
 
         return qs
 
