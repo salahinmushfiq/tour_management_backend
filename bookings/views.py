@@ -51,8 +51,6 @@ class BookingViewSet(viewsets.ModelViewSet):
 
         return qs
 
-        return qs
-
     # ---------------------------
     # ✅ Tourist creates booking
     # ---------------------------
