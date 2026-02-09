@@ -77,7 +77,7 @@ jobs:
 
       - name: Drop lingering test DB (safety)
         run: |
-          psql -U postgres -c "DROP DATABASE IF EXISTS test_tourmate;" || true
+          PGPASSWORD=postgres psql -h localhost -U postgres -p 5432 -c "DROP DATABASE IF EXISTS test_tourmate;" || true
 
           - name: Patch Celery for tests
             run: |
