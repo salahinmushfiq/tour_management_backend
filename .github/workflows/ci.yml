@@ -129,6 +129,11 @@ jobs:
       SSL_FAIL_URL: ${{ secrets.SSL_FAIL_URL }}
       SSL_SUCCESS_URL: ${{ secrets.SSL_SUCCESS_URL }}
       USE_SUPABASE: ${{ secrets.USE_SUPABASE }}
+      SUPABASE_DB_NAME: ${{ secrets.SUPABASE_DB_NAME }}
+      SUPABASE_DB_USER: ${{ secrets.SUPABASE_DB_USER }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_DB_HOST: ${{ secrets.SUPABASE_DB_HOST }}
+      SUPABASE_DB_PORT: ${{ secrets.SUPABASE_DB_PORT }}
 
     steps:
       - uses: actions/checkout@v4
