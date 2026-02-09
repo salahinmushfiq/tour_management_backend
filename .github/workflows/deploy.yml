@@ -80,6 +80,8 @@ jobs:
           SSL_CANCEL_URL: ${{ secrets.SSL_CANCEL_URL }}
           SSL_FAIL_URL: ${{ secrets.SSL_FAIL_URL }}
           SSL_SUCCESS_URL: ${{ secrets.SSL_SUCCESS_URL }}
+          EMAIL_BACKEND: ${{ secrets.EMAIL_BACKEND }}
+
         run: |
           python manage.py migrate --noinput
 
@@ -107,6 +109,7 @@ jobs:
           EMAIL_HOST_PASSWORD: ${{ secrets.EMAIL_HOST_PASSWORD }}
           EMAIL_PORT: ${{ secrets.EMAIL_PORT }}
           EMAIL_USE_TLS: ${{ secrets.EMAIL_USE_TLS }}
+          EMAIL_BACKEND: ${{ secrets.EMAIL_BACKEND }}
           FACEBOOK_OAUTH2_KEY: ${{ secrets.FACEBOOK_OAUTH2_KEY }}
           FACEBOOK_OAUTH2_SECRET: ${{ secrets.FACEBOOK_OAUTH2_SECRET }}
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
