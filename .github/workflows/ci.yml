@@ -40,7 +40,7 @@ jobs:
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       DB_HOST: ${{ secrets.DB_HOST }}
       DB_PORT: ${{ secrets.DB_PORT }}
-      REDIS_URL: redis://redis:6379/0   # ✅ use service hostname
+      REDIS_URL: ${{ secrets.REDIS_URL }}
       ALLOWED_HOSTS: ${{ secrets.ALLOWED_HOSTS }}
       CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
       CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
@@ -93,7 +93,11 @@ jobs:
         run: python manage.py migrate --noinput
 
       - name: Test
-        run: python manage.py test --noinput --keepdb=False   # ✅ prevents "DB already exists"
+        run: |
+          # Ensure no old test DB is lingering
+          python manage.py flush --noinput
+          # Run tests without passing any value to --keepdb
+          python manage.py test --noinput
         env:
           CELERY_TASK_ALWAYS_EAGER: True                     # ✅ tasks run synchronously in tests
           REDIS_URL: redis://redis:6379/0
