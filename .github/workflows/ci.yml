@@ -1,4 +1,3 @@
-#ci.yml
 name: 🧪 TourMate CI (Django + Postgres + Redis + Celery)
 
 on:
@@ -27,13 +26,12 @@ jobs:
           --health-interval=5s
           --health-timeout=5s
           --health-retries=10
-
       redis:
         image: redis:7
         ports:
           - "6379:6379"
 
-    env: # ✅ NEW: single source of truth
+    env: # ✅ SINGLE SOURCE OF TRUTH
       DJANGO_ENV: ${{ secrets.DJANGO_ENV }}
       SECRET_KEY: ${{ secrets.SECRET_KEY }}
       DEBUG: ${{ secrets.DEBUG }}
@@ -42,7 +40,7 @@ jobs:
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       DB_HOST: ${{ secrets.DB_HOST }}
       DB_PORT: ${{ secrets.DB_PORT }}
-      REDIS_URL: ${{ secrets.REDIS_URL }}
+      REDIS_URL: redis://redis:6379/0   # ✅ use service hostname
       ALLOWED_HOSTS: ${{ secrets.ALLOWED_HOSTS }}
       CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
       CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
@@ -82,12 +80,23 @@ jobs:
         run: |
           pip install -r requirements.txt
 
+      - name: Wait for Postgres and Redis
+        run: |
+          for i in {1..10}; do
+            pg_isready -h ${{ secrets.DB_HOST }} -U ${{ secrets.DB_USER }} && break
+            redis-cli -h redis ping && break
+            echo "Waiting for Postgres and Redis..."
+            sleep 2
+          done
+
       - name: Migrate
         run: python manage.py migrate --noinput
 
       - name: Test
-        run: python manage.py test --noinput
-
+        run: python manage.py test --noinput --keepdb=False   # ✅ prevents "DB already exists"
+        env:
+          CELERY_TASK_ALWAYS_EAGER: True                     # ✅ tasks run synchronously in tests
+          REDIS_URL: redis://redis:6379/0
 
   docker-stack:
     runs-on: ubuntu-latest
@@ -102,7 +111,7 @@ jobs:
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       DB_HOST: ${{ secrets.DB_HOST }}
       DB_PORT: ${{ secrets.DB_PORT }}
-      REDIS_URL: ${{ secrets.REDIS_URL }}
+      REDIS_URL: redis://redis:6379/0
       ALLOWED_HOSTS: ${{ secrets.ALLOWED_HOSTS }}
       CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
       CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
