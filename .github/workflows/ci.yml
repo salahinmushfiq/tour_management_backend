@@ -35,14 +35,36 @@ jobs:
 
     env: # ✅ NEW: single source of truth
       DJANGO_ENV: ${{ secrets.DJANGO_ENV }}
-      SECRET_KEY: ${{ secrets.SECRET_KEY }}
-      DEBUG: ${{ secrets.DEBUG }}
-      DB_NAME: ${{ secrets.DB_NAME }}
-      DB_USER: ${{ secrets.DB_USER }}
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      DB_HOST: localhost
-      DB_PORT: 5432
-      REDIS_URL: redis://localhost:6379/0
+        SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        DEBUG: ${{ secrets.DEBUG }}
+        DB_NAME: ${{ secrets.DB_NAME }}
+        DB_USER: ${{ secrets.DB_USER }}
+        DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        DB_HOST: ${{ secrets.DB_HOST }}
+        DB_PORT: ${{ secrets.DB_PORT }}
+        REDIS_URL: ${{ secrets.REDIS_URL }}
+        ALLOWED_HOSTS: ${{ secrets.ALLOWED_HOSTS }}
+        CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+        CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+        CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+        CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
+        DEFAULT_FROM_EMAIL: ${{ secrets.DEFAULT_FROM_EMAIL }}
+        EMAIL_BACKEND: ${{ secrets.EMAIL_BACKEND }}
+        EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
+        EMAIL_HOST_USER: ${{ secrets.EMAIL_HOST_USER }}
+        EMAIL_HOST_PASSWORD: ${{ secrets.EMAIL_HOST_PASSWORD }}
+        EMAIL_PORT: ${{ secrets.EMAIL_PORT }}
+        EMAIL_USE_TLS: ${{ secrets.EMAIL_USE_TLS }}
+        FACEBOOK_OAUTH2_KEY: ${{ secrets.FACEBOOK_OAUTH2_KEY }}
+        FACEBOOK_OAUTH2_SECRET: ${{ secrets.FACEBOOK_OAUTH2_SECRET }}
+        GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+        GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+        SSLCOMMERZ_STORE_ID: ${{ secrets.SSLCOMMERZ_STORE_ID }}
+        SSLCOMMERZ_STORE_PASSWORD: ${{ secrets.SSLCOMMERZ_STORE_PASSWORD }}
+        SSL_CANCEL_URL: ${{ secrets.SSL_CANCEL_URL }}
+        SSL_FAIL_URL: ${{ secrets.SSL_FAIL_URL }}
+        SSL_SUCCESS_URL: ${{ secrets.SSL_SUCCESS_URL }}
+        USE_SUPABASE: ${{ secrets.USE_SUPABASE }}
 
     steps:
       - uses: actions/checkout@v4
@@ -67,14 +89,37 @@ jobs:
     needs: backend-tests
 
     env: # ✅ SAME env for Docker
+      DJANGO_ENV: ${{ secrets.DJANGO_ENV }}
       SECRET_KEY: ${{ secrets.SECRET_KEY }}
       DEBUG: ${{ secrets.DEBUG }}
       DB_NAME: ${{ secrets.DB_NAME }}
       DB_USER: ${{ secrets.DB_USER }}
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      DB_HOST: postgres
-      DB_PORT: 5432
-      REDIS_URL: redis://redis:6379/0
+      DB_HOST: ${{ secrets.DB_HOST }}
+      DB_PORT: ${{ secrets.DB_PORT }}
+      REDIS_URL: ${{ secrets.REDIS_URL }}
+      ALLOWED_HOSTS: ${{ secrets.ALLOWED_HOSTS }}
+      CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+      CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+      CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+      CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
+      DEFAULT_FROM_EMAIL: ${{ secrets.DEFAULT_FROM_EMAIL }}
+      EMAIL_BACKEND: ${{ secrets.EMAIL_BACKEND }}
+      EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
+      EMAIL_HOST_USER: ${{ secrets.EMAIL_HOST_USER }}
+      EMAIL_HOST_PASSWORD: ${{ secrets.EMAIL_HOST_PASSWORD }}
+      EMAIL_PORT: ${{ secrets.EMAIL_PORT }}
+      EMAIL_USE_TLS: ${{ secrets.EMAIL_USE_TLS }}
+      FACEBOOK_OAUTH2_KEY: ${{ secrets.FACEBOOK_OAUTH2_KEY }}
+      FACEBOOK_OAUTH2_SECRET: ${{ secrets.FACEBOOK_OAUTH2_SECRET }}
+      GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+      SSLCOMMERZ_STORE_ID: ${{ secrets.SSLCOMMERZ_STORE_ID }}
+      SSLCOMMERZ_STORE_PASSWORD: ${{ secrets.SSLCOMMERZ_STORE_PASSWORD }}
+      SSL_CANCEL_URL: ${{ secrets.SSL_CANCEL_URL }}
+      SSL_FAIL_URL: ${{ secrets.SSL_FAIL_URL }}
+      SSL_SUCCESS_URL: ${{ secrets.SSL_SUCCESS_URL }}
+      USE_SUPABASE: ${{ secrets.USE_SUPABASE }}
 
     steps:
       - uses: actions/checkout@v4
