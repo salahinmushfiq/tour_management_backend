@@ -31,7 +31,7 @@ jobs:
         ports:
           - "6379:6379"
 
-    env: # ✅ SINGLE SOURCE OF TRUTH
+    env:
       DJANGO_ENV: ${{ secrets.DJANGO_ENV }}
       SECRET_KEY: ${{ secrets.SECRET_KEY }}
       DEBUG: ${{ secrets.DEBUG }}
@@ -63,11 +63,6 @@ jobs:
       SSL_FAIL_URL: ${{ secrets.SSL_FAIL_URL }}
       SSL_SUCCESS_URL: ${{ secrets.SSL_SUCCESS_URL }}
       USE_SUPABASE: ${{ secrets.USE_SUPABASE }}
-      SUPABASE_DB_NAME: ${{ secrets.SUPABASE_DB_NAME }}
-      SUPABASE_DB_USER: ${{ secrets.SUPABASE_DB_USER }}
-      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-      SUPABASE_DB_HOST: ${{ secrets.SUPABASE_DB_HOST }}
-      SUPABASE_DB_PORT: ${{ secrets.SUPABASE_DB_PORT }}
 
     steps:
       - uses: actions/checkout@v4
@@ -76,31 +71,24 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           pip install -r requirements.txt
 
-      - name: Wait for Postgres and Redis
+      - name: Drop lingering test DB (safety)
         run: |
-          for i in {1..10}; do
-            pg_isready -h ${{ secrets.DB_HOST }} -U ${{ secrets.DB_USER }} && break
-            redis-cli -h redis ping && break
-            echo "Waiting for Postgres and Redis..."
-            sleep 2
-          done
+          psql -U postgres -c "DROP DATABASE IF EXISTS test_tourmate;" || true
+
+      - name: Set Celery to eager mode for tests
+        run: |
+          echo "CELERY_TASK_ALWAYS_EAGER = True" >> tour_management_backend/settings_test.py
+          echo "CELERY_TASK_EAGER_PROPAGATES = True" >> tour_management_backend/settings_test.py
 
       - name: Migrate
-        run: python manage.py migrate --noinput
+        run: python manage.py migrate --settings=tour_management_backend.settings_test --noinput
 
-      - name: Test
-        run: |
-          # Ensure no old test DB is lingering
-          python manage.py flush --noinput
-          # Run tests without passing any value to --keepdb
-          python manage.py test --noinput
-        env:
-          CELERY_TASK_ALWAYS_EAGER: True                     # ✅ tasks run synchronously in tests
-          REDIS_URL: redis://redis:6379/0
+      - name: Run tests
+        run: python manage.py test --settings=tour_management_backend.settings_test --noinput
 
   docker-stack:
     runs-on: ubuntu-latest
