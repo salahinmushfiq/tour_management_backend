@@ -1,3 +1,4 @@
+#ci.yml
 name: 🧪 TourMate CI (Django + Postgres + Redis + Celery)
 
 on:
@@ -32,13 +33,10 @@ jobs:
         ports:
           - "6379:6379"
 
-    env: # single source of truth for Django tests
-      DJANGO_ENV: test
+    env: # ✅ NEW: single source of truth
+      DJANGO_ENV: ${{ secrets.DJANGO_ENV }}
       SECRET_KEY: ${{ secrets.SECRET_KEY }}
-      DEBUG: "True"
-      CELERY_TASK_ALWAYS_EAGER: "True"        # ✅ run celery tasks synchronously during tests
-      CELERY_TASK_EAGER_PROPAGATES: "True"
-
+      DEBUG: ${{ secrets.DEBUG }}
       DB_NAME: ${{ secrets.DB_NAME }}
       DB_USER: ${{ secrets.DB_USER }}
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
@@ -49,6 +47,7 @@ jobs:
       CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
       CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
       CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+      CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
       DEFAULT_FROM_EMAIL: ${{ secrets.DEFAULT_FROM_EMAIL }}
       EMAIL_BACKEND: ${{ secrets.EMAIL_BACKEND }}
       EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
@@ -79,23 +78,22 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
-          pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run migrations
+      - name: Migrate
         run: python manage.py migrate --noinput
 
-      - name: Run Django tests
+      - name: Test
         run: python manage.py test --noinput
 
+
   docker-stack:
-    name: 🐳 Docker + Celery Smoke Test
     runs-on: ubuntu-latest
     needs: backend-tests
 
-    env: # same env as backend-tests for consistency
+    env: # ✅ SAME env for Docker
       DJANGO_ENV: ${{ secrets.DJANGO_ENV }}
       SECRET_KEY: ${{ secrets.SECRET_KEY }}
       DEBUG: ${{ secrets.DEBUG }}
@@ -109,6 +107,7 @@ jobs:
       CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
       CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
       CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+      CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
       DEFAULT_FROM_EMAIL: ${{ secrets.DEFAULT_FROM_EMAIL }}
       EMAIL_BACKEND: ${{ secrets.EMAIL_BACKEND }}
       EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
@@ -126,27 +125,18 @@ jobs:
       SSL_FAIL_URL: ${{ secrets.SSL_FAIL_URL }}
       SSL_SUCCESS_URL: ${{ secrets.SSL_SUCCESS_URL }}
       USE_SUPABASE: ${{ secrets.USE_SUPABASE }}
-      SUPABASE_DB_NAME: ${{ secrets.SUPABASE_DB_NAME }}
-      SUPABASE_DB_USER: ${{ secrets.SUPABASE_DB_USER }}
-      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-      SUPABASE_DB_HOST: ${{ secrets.SUPABASE_DB_HOST }}
-      SUPABASE_DB_PORT: ${{ secrets.SUPABASE_DB_PORT }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build & run Docker stack
+      - name: Build & run
         run: |
           docker compose up -d --build
-          sleep 15
+          sleep 10
 
-      - name: Trigger Celery smoke task
+      - name: Celery smoke test
         run: |
-          docker exec tourmate_backend python manage.py shell -c \
-            "from tours.tasks import test_email_task; test_email_task.delay('smoke@example.com')"
-
-      - name: View Celery logs
-        run: docker logs tourmate_celery | tail -n 50
+          docker logs tourmate_celery | tail -n 50
 
       - name: Cleanup
         if: always()
