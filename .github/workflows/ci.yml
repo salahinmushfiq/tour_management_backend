@@ -79,16 +79,19 @@ jobs:
         run: |
           psql -U postgres -c "DROP DATABASE IF EXISTS test_tourmate;" || true
 
-      - name: Set Celery to eager mode for tests
-        run: |
-          echo "CELERY_TASK_ALWAYS_EAGER = True" >> tour_management_backend/settings_test.py
-          echo "CELERY_TASK_EAGER_PROPAGATES = True" >> tour_management_backend/settings_test.py
+          - name: Patch Celery for tests
+            run: |
+              export CELERY_TASK_ALWAYS_EAGER=True
+              export CELERY_TASK_EAGER_PROPAGATES=True
 
-      - name: Migrate
-        run: python manage.py migrate --settings=tour_management_backend.settings_test --noinput
+          - name: Migrate
+            run: python manage.py migrate --noinput
 
-      - name: Run tests
-        run: python manage.py test --settings=tour_management_backend.settings_test --noinput
+          - name: Run tests
+            run: python manage.py test --noinput
+            env:
+              CELERY_TASK_ALWAYS_EAGER: True
+              CELERY_TASK_EAGER_PROPAGATES: True
 
   docker-stack:
     runs-on: ubuntu-latest
