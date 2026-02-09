@@ -1,0 +1,13 @@
+# docker-compose.override.yml
+services:
+  web:
+    volumes:
+      - .:/app
+    env_file:
+      - .env   # ✅ LOCAL DEV ONLY
+
+  celery:
+    volumes:
+      - .:/app
+    env_file:
+      - .env   # ✅ LOCAL DEV ONLY

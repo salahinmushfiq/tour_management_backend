@@ -31,7 +31,7 @@ jobs:
         run: |
           echo "Triggering simulated Celery task..."
           docker exec tourmate_backend python manage.py shell -c \
-            "from tours.tasks import test_email_task; test_email_task.delay('recruiter@example.com')"
+            "from tours.tasks import test_email_task; test_email_task.delay('visitor@example.com')"
 
       - name: 🪶 View Celery logs
         run: |

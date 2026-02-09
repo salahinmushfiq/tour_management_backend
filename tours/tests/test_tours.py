@@ -3,13 +3,13 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 from tours.models import Tour
-from users.models import CustomUser
+from accounts.models import User
 from bookings.models import Booking
 
 class TourViewSetTestCase(APITestCase):
     def setUp(self):
         # Create an organizer
-        self.organizer = CustomUser.objects.create_user(
+        self.organizer = User.objects.create_user(
             email="organizer@example.com",
             password="password123",
             is_organizer=True
