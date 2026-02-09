@@ -34,6 +34,7 @@ jobs:
           - "6379:6379"
 
     env: # ✅ NEW: single source of truth
+      DJANGO_ENV: ${{ secrets.DJANGO_ENV }}
       SECRET_KEY: ${{ secrets.SECRET_KEY }}
       DEBUG: ${{ secrets.DEBUG }}
       DB_NAME: ${{ secrets.DB_NAME }}
