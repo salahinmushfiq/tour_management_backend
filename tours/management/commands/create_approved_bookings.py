@@ -1,3 +1,4 @@
+# tours/management/commands/create_approved_bookings.py
 from django.core.management.base import BaseCommand
 from tours.models import TourParticipant
 from bookings.models import Booking

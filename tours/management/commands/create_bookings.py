@@ -30,7 +30,7 @@
 #         else:
 #             self.stdout.write(self.style.SUCCESS(f"Total bookings created: {created_count}"))
 
-
+# tours/management/commands/create_bookings.py
 from django.core.management.base import BaseCommand
 from tours.models import Booking
 
