@@ -1,4 +1,5 @@
 # bookings/views.py
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework import viewsets
@@ -13,13 +14,25 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 
-# Create your views here.
+class SmallPagination(PageNumberPagination):
+    page_size = 5
+    page_size_query_param = "page_size"
+    max_page_size = 10
+
+
+class StandardResultsSetPagination(PageNumberPagination):
+    # Sensible defaults; client can request up to 50
+    page_size = 10
+    page_size_query_param = "page_size"
+    max_page_size = 50
+
 
 class BookingViewSet(viewsets.ModelViewSet):
-    queryset = Booking.objects.all()
+    queryset = Booking.objects.all().order_by('created_at')
     serializer_class = BookingSerializer
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
 
     # ---------------------------
     # ✅ Queryset with correct filtering
@@ -49,7 +62,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         if organizer:
             qs = qs.filter(participant__tour__organizer_id=organizer)
 
-        return qs
+        return qs.order_by("created_at")
 
     # ---------------------------
     # ✅ Tourist creates booking
@@ -77,64 +90,72 @@ class BookingViewSet(viewsets.ModelViewSet):
     # ---------------------------
     # ✅ Tourist online partial/full payment
     # ---------------------------
-    @action(detail=True, methods=["patch"], url_path="pay")
-    def pay(self, request, pk=None):
-        booking = self.get_object()
-        user = request.user
-
-        if user.role != "tourist" or booking.participant.user != user:
-            raise PermissionDenied()
-
-        amount = request.data.get("amount")
-        if not amount:
-            return Response({"detail": "Amount required."}, status=400)
-
-        amount = Decimal(amount)
-        booking.amount_paid += amount
-
-        if booking.amount_paid < booking.amount:
-            booking.payment_status = "partial"
-        else:
-            # Only auto-mark paid for online payments
-            if booking.payment_method != "cash":
-                booking.payment_status = "paid"
-                booking.paid_at = timezone.now()
-            else:
-                booking.payment_status = "partial"  # Wait for organizer verification
-
-        booking.save()
-        return Response(BookingSerializer(booking, context={"request": request}).data)
+    # @action(detail=True, methods=["patch"], url_path="pay")
+    # def pay(self, request, pk=None):
+    #     booking = self.get_object()
+    #     user = request.user
+    #
+    #     if user.role != "tourist" or booking.participant.user != user:
+    #         raise PermissionDenied()
+    #
+    #     amount = request.data.get("amount")
+    #     if not amount:
+    #         return Response({"detail": "Amount required."}, status=400)
+    #
+    #     amount = Decimal(amount)
+    #     booking.amount_paid += amount
+    #
+    #     # 🔹 Check latest payment method
+    #     latest_payment = booking.payments.last()  # Payment model has 'method' field
+    #     if latest_payment and latest_payment.method != "cash":
+    #         # Online payments auto-mark as paid if full
+    #         if booking.amount_paid >= booking.amount:
+    #             booking.payment_status = "paid"
+    #             booking.paid_at = timezone.now()
+    #         else:
+    #             booking.payment_status = "partial"
+    #     else:
+    #         # If no payment record or cash, mark partial (organizer verification needed)
+    #         booking.payment_status = "partial"
+    #
+    #     booking.save()
+    #     return Response(BookingSerializer(booking, context={"request": request}).data)
 
     # ---------------------------
     # ✅ Organizer collects cash (partial/full)
     # ---------------------------
-    @action(detail=True, methods=["patch"], url_path="cash-collect")
-    def cash_collect(self, request, pk=None):
-        booking = self.get_object()
-        user = request.user
-
-        if user.role != "organizer":
-            raise PermissionDenied("Only organizers can collect cash.")
-
-        if booking.participant.tour.organizer != user:
-            raise PermissionDenied()
-
-        amount = request.data.get("amount")
-        if not amount:
-            return Response({"detail": "Amount required."}, status=400)
-
-        amount = Decimal(amount)
-        booking.amount_paid += amount
-        booking.payment_method = "cash"
-
-        # Never auto-mark full payment for cash; always wait for verify
-        if booking.amount_paid < booking.amount:
-            booking.payment_status = "partial"
-        else:
-            booking.payment_status = "partial"  # still partial until organizer verifies
-
-        booking.save()
-        return Response(BookingSerializer(booking, context={"request": request}).data)
+    # @action(detail=True, methods=["patch"], url_path="cash-collect")
+    # def cash_collect(self, request, pk=None):
+    #     booking = self.get_object()
+    #     user = request.user
+    #
+    #     if user.role != "organizer":
+    #         raise PermissionDenied("Only organizers can collect cash.")
+    #
+    #     if booking.participant.tour.organizer != user:
+    #         raise PermissionDenied()
+    #
+    #     amount = request.data.get("amount")
+    #     if not amount:
+    #         return Response({"detail": "Amount required."}, status=400)
+    #
+    #     amount = Decimal(amount)
+    #     booking.amount_paid += amount
+    #
+    #     # Create a Payment record with method 'cash'
+    #     from payments.models import Payment
+    #     Payment.objects.create(
+    #         booking=booking,
+    #         amount=amount,
+    #         method="cash",
+    #         created_by=user
+    #     )
+    #
+    #     # Always partial until organizer verifies
+    #     booking.payment_status = "partial"
+    #     booking.save()
+    #
+    #     return Response(BookingSerializer(booking, context={"request": request}).data)
 
     # ---------------------------
     # ✅ Admin/Organizer manually verify full payment

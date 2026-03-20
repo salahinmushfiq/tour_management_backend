@@ -489,7 +489,7 @@ class TourViewSet(viewsets.ModelViewSet):
                 Q(end_location__icontains=search)
             )
 
-        return qs
+        return qs.order_by("-start_date")
 
     def perform_create(self, serializer):
         """

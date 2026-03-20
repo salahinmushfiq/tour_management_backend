@@ -56,6 +56,7 @@ class PaymentSerializer(serializers.ModelSerializer):
             "updated_at",
             "verified_by",
             "verified_at",
+            "method"
         ]
 
     def get_booking_detail(self, obj):
