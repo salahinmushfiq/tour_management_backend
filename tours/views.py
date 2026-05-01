@@ -1,211 +1,3 @@
-# # tours/views.py
-# from django.utils.decorators import method_decorator
-# from django.views.decorators.cache import cache_page
-# from rest_framework import viewsets, mixins, permissions, status
-# from rest_framework.permissions import IsAuthenticated, IsAdminUser
-# from rest_framework_simplejwt.authentication import JWTAuthentication
-#
-# from .models import Guide, Tour, Offer, TourParticipant
-# from .permissions import IsAdminOrOrganizerOwnerOrReadOnly, IsOrganizerOrAdmin, IsGuideSelf
-# from .serializers import GuideSerializer, TourSerializer, OfferSerializer, ParticipantSerializer, \
-#     TourGuideAssignmentSerializer
-# from rest_framework.exceptions import PermissionDenied
-# from rest_framework.decorators import action
-# from rest_framework.response import Response
-# from django.shortcuts import get_object_or_404
-#
-# from django.utils import timezone
-#
-# from .models import TourGuideAssignment, Tour
-# from .serializers import TourGuideAssignmentSerializer
-#
-#
-# class GuideViewSet(viewsets.ModelViewSet):
-#     authentication_classes = [JWTAuthentication]
-#     queryset = Guide.objects.all()
-#     serializer_class = GuideSerializer
-#     permission_classes = [permissions.IsAuthenticated]
-#
-#
-# class TourViewSet(viewsets.ModelViewSet):
-#     """
-#     - Admins → Full CRUD on all tours
-#     - Organizers → Full CRUD on their tours
-#     - Tourists → Read-only
-#     """
-#     authentication_classes = [JWTAuthentication]
-#     serializer_class = TourSerializer
-#     permission_classes = [IsAdminOrOrganizerOwnerOrReadOnly]
-#
-#     def get_queryset(self):
-#         user = self.request.user
-#
-#         if not user.is_authenticated or user.role == 'tourist':
-#             # Tourists and guests can see all tours
-#             return Tour.objects.all().order_by('-start_date')
-#
-#         if user.role == 'organizer':
-#             # Organizers see only their tours
-#             return Tour.objects.filter(organizer=user).order_by('-start_date')
-#
-#         # Admin sees all tours
-#         return Tour.objects.all().order_by('-start_date')
-#
-#     def perform_create(self, serializer):
-#         # Only organizers or admins can create
-#         if self.request.user.role not in ['organizer', 'admin']:
-#             raise PermissionDenied("Only organizers or admins can create tours.")
-#         serializer.save(organizer=self.request.user)
-#
-#     @method_decorator(cache_page(60 * 5))  # 5 min cache for list
-#     def list(self, request, *args, **kwargs):
-#         return super().list(request, *args, **kwargs)
-#
-#     @action(detail=True, methods=['get'], url_path='guides', permission_classes=[IsAuthenticated])
-#     def guides(self, request, pk=None):
-#         tour = get_object_or_404(Tour, pk=pk)
-#         assignments = TourGuideAssignment.objects.filter(tour=tour)
-#         serializer = TourGuideAssignmentSerializer(assignments, many=True)
-#         return Response(serializer.data)
-#
-#
-# class TourGuideAssignmentViewSet(viewsets.GenericViewSet,
-#                                  mixins.ListModelMixin,
-#                                  mixins.DestroyModelMixin,
-#                                  mixins.UpdateModelMixin):
-#     serializer_class = TourGuideAssignmentSerializer
-#     authentication_classes = [JWTAuthentication]
-#
-#     def get_queryset(self):
-#         user = self.request.user
-#         if user.role == 'admin':
-#             return TourGuideAssignment.objects.all()
-#         elif user.role == 'organizer':
-#             return TourGuideAssignment.objects.filter(tour__organizer=user)
-#         elif user.role == 'guide':
-#             return TourGuideAssignment.objects.filter(guide__user=user)
-#         return TourGuideAssignment.objects.none()
-#
-#     def get_permissions(self):
-#         if self.action == 'respond':
-#             permission_classes = [IsAuthenticated, IsGuideSelf]
-#         elif self.action in ['assign_guide', 'list', 'destroy']:
-#             permission_classes = [IsAuthenticated, IsAdminOrOrganizerOwnerOrReadOnly]
-#         elif self.action == 'partial_update':  # admin override
-#             permission_classes = [IsAdminUser]
-#         else:
-#             permission_classes = [IsAuthenticated]
-#         return [perm() for perm in permission_classes]
-#
-#     @action(detail=True, methods=['post'], url_path='assign-guide')
-#     def assign_guide(self, request, pk=None):
-#         user = request.user
-#         tour = get_object_or_404(Tour, pk=pk)
-#         if not (user.role == 'admin' or (user.role == 'organizer' and tour.organizer == user)):
-#             return Response({'detail': 'Not authorized to assign guides.'}, status=403)
-#
-#         guide_ids = request.data.get('guide_ids')
-#         if not guide_ids or not isinstance(guide_ids, list):
-#             return Response({'detail': 'guide_ids list required.'}, status=400)
-#
-#         assignments = []
-#         for gid in guide_ids:
-#             guide = Guide.objects.filter(id=gid).first()
-#             if not guide:
-#                 continue
-#             # Skip duplicates
-#             if TourGuideAssignment.objects.filter(tour=tour, guide=guide, status__in=['pending', 'accepted']).exists():
-#                 continue
-#             assignment = TourGuideAssignment.objects.create(tour=tour, guide=guide, status='pending')
-#             assignments.append(assignment)
-#
-#         serializer = self.get_serializer(assignments, many=True)
-#         return Response(serializer.data, status=201)
-#
-#     @action(detail=True, methods=['post'], url_path='respond')
-#     def respond(self, request, pk=None):
-#         assignment = self.get_object()
-#         user = request.user
-#         if not (user.role == 'guide' and assignment.guide.user == user):
-#             return Response({'detail': 'Not authorized to respond.'}, status=403)
-#
-#         new_status = request.data.get('status')
-#         if new_status not in ['accepted', 'declined']:
-#             return Response({'detail': 'Invalid status.'}, status=400)
-#
-#         assignment.status = new_status
-#         assignment.save()
-#         return Response(self.get_serializer(assignment).data)
-#
-#     def destroy(self, request, pk=None):
-#         assignment = self.get_object()
-#         user = request.user
-#         if not (user.role == 'admin' or (user.role == 'organizer' and assignment.tour.organizer == user)):
-#             return Response({'detail': 'Not authorized to cancel.'}, status=403)
-#
-#         if assignment.status != 'pending':
-#             return Response({'detail': 'Only pending assignments can be cancelled.'}, status=400)
-#
-#         assignment.delete()
-#         return Response(status=204)
-#
-#
-# class OfferViewSet(viewsets.ModelViewSet):
-#     """
-#     - Admins/Organizers → Full CRUD
-#     - Tourists → Read-only
-#     """
-#     queryset = Offer.objects.all()
-#     serializer_class = OfferSerializer
-#     permission_classes = [IsAdminOrOrganizerOwnerOrReadOnly]
-#
-#
-# class TourParticipantViewSet(viewsets.ModelViewSet):
-#     queryset = TourParticipant.objects.all()
-#     serializer_class = ParticipantSerializer
-#
-#     def get_queryset(self):
-#         user = self.request.user
-#         if user.role == 'admin':
-#             return TourParticipant.objects.all()
-#         elif user.role == 'organizer':
-#             # Only participants for organizer’s tours
-#             return TourParticipant.objects.filter(tour__organizer=user)
-#         else:
-#             # Tourist: See only their participations
-#             return TourParticipant.objects.filter(user=user)
-#
-#     def perform_create(self, serializer):
-#         """
-#         Tourist joins a tour -> pending by default
-#         """
-#         user = self.request.user
-#         if user.role != 'tourist':
-#             raise permissions.PermissionDenied("Only tourists can join tours.")
-#         serializer.save(user=user, status='pending')
-#
-#     # Organizer/Admin Approve Participant
-#     @action(detail=True, methods=['patch'], url_path='approve')
-#     def approve_participant(self, request, pk=None):
-#         participant = self.get_object()
-#         if request.user.role not in ['admin', 'organizer']:
-#             return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
-#
-#         participant.status = 'approved'
-#         participant.save()
-#         return Response({"detail": "Participant approved."}, status=status.HTTP_200_OK)
-#
-#     # Organizer/Admin Reject Participant
-#     @action(detail=True, methods=['patch'], url_path='reject')
-#     def reject_participant(self, request, pk=None):
-#         participant = self.get_object()
-#         if request.user.role not in ['admin', 'organizer']:
-#             return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
-#
-#         participant.status = 'rejected'
-#         participant.save()
-#         return Response({"detail": "Participant rejected."}, status=status.HTTP_200_OK)
-
 # tours/views.py
 from django.db.models import Prefetch
 from django.utils.decorators import method_decorator
@@ -366,6 +158,30 @@ class SmallPagination(PageNumberPagination):
     max_page_size = 10
 
 
+class PublicToursView(APIView):
+    authentication_classes = []  # 🔓 public
+    permission_classes = []
+
+    def get(self, request):
+        tours = Tour.objects.all().order_by("-start_date")[:100]
+
+        data = [
+            {
+                "id": tour.id,
+                "title": tour.title,
+                "description": tour.description,
+                "start_location": tour.start_location,
+                "end_location": tour.end_location,
+                "category": tour.category,
+                "price": float(tour.cost_per_person),
+                "start_date": str(tour.start_date),
+            }
+            for tour in tours
+        ]
+
+        return Response(data)
+
+
 class TourViewSet(viewsets.ModelViewSet):
     """
     TourViewSet provides CRUD operations for Tour model with role-based access control:
@@ -512,22 +328,6 @@ class TourViewSet(viewsets.ModelViewSet):
         """
         return super().list(request, *args, **kwargs)
 
-    # @action(detail=True, methods=['get'], url_path='guides', permission_classes=[IsAuthenticated],
-    #         authentication_classes=[JWTAuthentication])
-    # def guides(self, request, pk=None):
-    #     """
-    #        List all guides **actually assigned to the tour** (accepted).
-    #        Admins or the organizer can view all guides.
-    #        """
-    #     tour = get_object_or_404(Tour, pk=pk)
-    #     if not (request.user.role == 'admin' or (request.user.role == 'organizer' and tour.organizer == request.user)):
-    #         return Response({'detail': 'Not authorized to view guides for this tour.'},
-    #                         status=status.HTTP_403_FORBIDDEN)
-    #
-    #     # Only show guides that were accepted
-    #     accepted_assignments = TourGuideAssignment.objects.filter(tour=tour, status='accepted')
-    #     serializer = self.get_serializer(accepted_assignments, many=True)
-    #     return Response(serializer.data)
     @action(detail=True, methods=['get'], url_path='guides')
     def guides(self, request, pk=None):
         """

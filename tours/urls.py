@@ -8,7 +8,7 @@ from .views import (
     TourParticipantViewSet,
     TourGuideAssignmentViewSet,
     TouristToursView,
-    DashboardStatsView,  # <-- updated
+    DashboardStatsView, PublicToursView,
 )
 
 router = DefaultRouter()
@@ -21,7 +21,8 @@ router.register(r'', TourViewSet, basename='tour')
 
 
 urlpatterns = [
-    path('my-tours/', TouristToursView.as_view(), name='my-tours'),  # manual APIView path
-    path('dashboard-stats/', DashboardStatsView.as_view(), name='dashboard-stats'),  # <-- class-based
+    path('my-tours/', TouristToursView.as_view(), name='my-tours'),
+    path('dashboard-stats/', DashboardStatsView.as_view(), name='dashboard-stats'),
+    path('public/', PublicToursView.as_view(), name='public'),
     path('', include(router.urls)),
 ]
